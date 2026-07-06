@@ -2,12 +2,16 @@
 
 Copy the prompt below into Codex, Claude Code, Cursor Agent, or another local coding agent that can run shell commands on your Windows machine.
 
-Replace `<REPO_URL>` with this repository's GitHub URL after publishing.
+Repository URL:
+
+```text
+https://github.com/yzmw123/wsl-wechat-bridge
+```
 
 ## Short Prompt
 
 ```text
-Please install WSL WeChat Bridge from <REPO_URL> on my Windows machine.
+Please install WSL WeChat Bridge from https://github.com/yzmw123/wsl-wechat-bridge on my Windows machine.
 
 First inspect whether WSL2 and a usable Ubuntu distro are already installed. If WSL is missing or needs Windows features/reboot/admin changes, explain exactly what is needed and ask for my approval before changing the system. If WSL is ready, install or reuse Ubuntu-22.04 or another Ubuntu distro, install the latest official Linux WeChat package from https://linux.weixin.qq.com/, then install this bridge project.
 
@@ -17,7 +21,7 @@ After installation, run `scripts\doctor.ps1`, start Linux WeChat through the bri
 ## Full Prompt
 
 ```text
-You are my local installation agent. Your goal is to install and verify WSL WeChat Bridge from <REPO_URL> so that I can run Linux WeChat inside WSL on Windows, chat normally, and have reliable clipboard sync between Windows and Linux WeChat.
+You are my local installation agent. Your goal is to install and verify WSL WeChat Bridge from https://github.com/yzmw123/wsl-wechat-bridge so that I can run Linux WeChat inside WSL on Windows, chat normally, and have reliable clipboard sync between Windows and Linux WeChat.
 
 Important safety rules:
 - Inspect first; do not make destructive changes.
@@ -53,7 +57,7 @@ Work step by step:
    - If the official package installs WeChat under a different command path, create `~/.config/wsl-wechat-bridge/config` with `WECHAT_COMMAND=/path/to/wechat`.
 
 4. Install WSL WeChat Bridge from the repository.
-   - Clone `<REPO_URL>` into a reasonable local folder.
+   - Clone `https://github.com/yzmw123/wsl-wechat-bridge` into a reasonable local folder.
    - Run the project's installer from PowerShell:
      `powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Distro <DistroName>`
      If required dependencies are missing and I approve sudo changes, use:
