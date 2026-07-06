@@ -38,7 +38,7 @@ The installer also creates convenience symlinks in the WSL home directory when t
 ~/Windows-Documents
 ```
 
-These links let Linux WeChat's file picker send files directly from Windows disks.
+These links let Linux WeChat's file picker send files directly from Windows disks and save received files back into Windows folders.
 
 ## Chinese Input
 

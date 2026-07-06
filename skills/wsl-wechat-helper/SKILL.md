@@ -113,7 +113,7 @@ Fresh WSL/Ubuntu installs usually do not have Chinese input ready for Linux GUI 
 
 ### Windows File Links
 
-For sending Windows files directly from Linux WeChat, the installer creates WSL home links such as `~/Windows-C`, `~/Windows-D`, `~/Windows-Downloads`, `~/Windows-Desktop`, and `~/Windows-Documents`. If the official WeChat package installs a nonstandard command, set `WECHAT_COMMAND=/path/to/wechat` in `~/.config/wsl-wechat-bridge/config`.
+For sending Windows files directly from Linux WeChat, and for saving received files back into Windows folders, the installer creates WSL home links such as `~/Windows-C`, `~/Windows-D`, `~/Windows-Downloads`, `~/Windows-Desktop`, and `~/Windows-Documents`. If the official WeChat package installs a nonstandard command, set `WECHAT_COMMAND=/path/to/wechat` in `~/.config/wsl-wechat-bridge/config`.
 
 ### Windows Search Hiding
 

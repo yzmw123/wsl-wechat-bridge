@@ -11,7 +11,7 @@ Please install WSL WeChat Bridge from <REPO_URL> on my Windows machine.
 
 First inspect whether WSL2 and a usable Ubuntu distro are already installed. If WSL is missing or needs Windows features/reboot/admin changes, explain exactly what is needed and ask for my approval before changing the system. If WSL is ready, install or reuse Ubuntu-22.04 or another Ubuntu distro, install the latest official Linux WeChat package from https://linux.weixin.qq.com/, then install this bridge project.
 
-After installation, run `scripts\doctor.ps1`, start Linux WeChat through the bridge, verify Chinese input works inside Linux WeChat, open the Windows clipboard widget, verify Windows-to-WSL clipboard sync, Linux-WeChat-to-Windows text sync, and that Linux WeChat can pick Windows files through `~/Windows-Downloads` or similar links. Give me the daily commands. Do not use unofficial WeChat packages unless I explicitly approve.
+After installation, run `scripts\doctor.ps1`, start Linux WeChat through the bridge, verify Chinese input works inside Linux WeChat, open the Windows clipboard widget, verify Windows-to-WSL clipboard sync, Linux-WeChat-to-Windows text sync, and that Linux WeChat can pick and save Windows files through `~/Windows-Downloads` or similar links. Give me the daily commands. Do not use unofficial WeChat packages unless I explicitly approve.
 ```
 
 ## Full Prompt
@@ -61,7 +61,7 @@ Work step by step:
    - Confirm Windows helper files exist under `%LOCALAPPDATA%\WslPrivate\launchers`.
    - Confirm `notice.ps1` exists there; it may be a hidden file.
    - Confirm WSL helper commands exist in `/usr/local/bin`, especially `wechat-desktop`, `wechat-desktop-stop`, `winclip2wechat`, and `wechatclip2win`.
-   - Confirm Windows file links exist in WSL, such as `~/Windows-C`, `~/Windows-Downloads`, and `~/Windows-Documents`, so Linux WeChat can send files directly from Windows disks.
+   - Confirm Windows file links exist in WSL, such as `~/Windows-C`, `~/Windows-Downloads`, and `~/Windows-Documents`, so Linux WeChat can send files directly from Windows disks and save received files back to Windows folders.
    - Run:
      `powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Distro <DistroName>`
 
@@ -79,7 +79,7 @@ Work step by step:
 6. Verify clipboard behavior.
    - Test Windows-to-Linux: copy text in Windows, use the widget's "同步到 WSL", then paste into Linux WeChat.
    - Test Linux-to-Windows: copy text inside Linux WeChat, wait briefly, then check whether Windows can paste it.
-   - Test file sending: in Linux WeChat, choose a file from `~/Windows-Downloads` or `~/Windows-Documents`.
+   - Test file transfer: in Linux WeChat, choose a file from `~/Windows-Downloads` or `~/Windows-Documents`, and test saving a received file back into one of those Windows-linked folders.
    - If automatic sync is not running, use the widget's listener status row or start:
      `wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-watch-hidden.vbs"`
    - Do not start a separate `wechatclip2win --watch`; this project uses one unified watcher.

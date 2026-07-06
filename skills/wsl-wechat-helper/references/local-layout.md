@@ -24,7 +24,7 @@ The installer creates convenience links in the WSL home directory when the Windo
 - `~/Windows-Downloads`
 - `~/Windows-Documents`
 
-These make Windows files visible in Linux WeChat's file picker, so users can send files from Windows disks directly.
+These make Windows files visible in Linux WeChat's file picker, so users can send files from Windows disks directly and save received files back into Windows folders.
 
 ## Chinese Input Method
 
