@@ -1,8 +1,17 @@
-# WSL WeChat Bridge
+# WSL WeChat Bridge ✨
 
-在 Windows + WSL2 里更舒服地使用 Linux 微信。
+> 在 Windows 上不直接装微信，也能拥有接近原生微信的 Linux 微信体验。
 
-这个项目提供一套本地桥接工具：把 Linux 微信运行在一个独立的嵌套桌面里，同时提供 Windows 桌面小组件、剪切板同步、启动/关闭控制，以及可选的通知和焦点辅助能力。
+![Platform](https://img.shields.io/badge/platform-Windows%20%2B%20WSL2-blue)
+![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Made for China](https://img.shields.io/badge/made%20for-%E4%B8%AD%E5%9B%BD%E7%94%A8%E6%88%B7-red)
+
+如果你的 Windows 电脑不方便安装微信，或者你不希望 Windows 本机环境里出现微信痕迹，可以试试这套方案。
+
+它的思路很简单：**微信不装在 Windows 本机，而是装在 WSL2 虚拟化 Linux 环境里**。项目会给 Linux 微信套一个独立窗口，再用自写的消息提醒桥、焦点桥、剪切板桥和桌面小组件，把体验尽量补到接近 Windows 原生微信。
+
+一句话：**Windows 里看起来像有一个微信窗口，实际运行在 Linux/WSL 里。**
 
 本项目不包含、也不分发微信安装包。Linux 微信请从官方页面获取：
 
@@ -10,33 +19,68 @@
 https://linux.weixin.qq.com/
 ```
 
-## 适合谁
+## 为什么会有这个项目
 
-- 你想在 Windows 上使用 WSL 里的 Linux 微信。
-- 你不想让 Windows 开始菜单/搜索里出现一堆 WeChat/微信入口。
-- 你希望 Windows 和 Linux 微信之间复制粘贴更顺手。
-- 你希望有一个小窗口可以手动把文字、图片、文件同步到 WSL 剪切板。
-- 你希望后续可以让 AI agent 帮你检查、修复这套本地环境。
+Windows 微信有时不方便装，原因可能很多：
 
-## 主要功能
+- 工作电脑/远程电脑不适合直接安装微信；
+- 不希望 Windows 开始菜单、搜索、应用列表里出现微信；
+- 想把微信和主系统隔离一下；
+- 已经在用 WSL，希望顺手把 Linux 微信也跑起来；
+- Windows 和 Linux 微信之间复制粘贴太痛苦，想要一个顺手的桥。
 
-Windows 桌面小组件可以：
+所以这个项目做的是一件偏“符合中国宝宝体质”的事：让国内用户在 Windows 上用 WSL 跑 Linux 微信，同时把复制粘贴、启动关闭、消息提醒这些日常体验补齐。
 
-- 读取并预览 Windows 剪切板里的文字、图片、文件；
-- 一键同步到 WSL/Linux 剪切板；
-- 一键启动 Linux 微信；
-- 一键关闭卡住的 Linux 微信进程；
-- 显示统一剪切板监听状态；
-- 在监听异常时一键启动，在监听正常时一键停止。
+## 它能做到什么
 
-统一剪切板监听负责：
+### 独立 Linux 微信窗口
 
-- Windows 图片/文件剪切板同步到 Linux 微信；
-- Linux/X11 文本剪切板同步回 Windows。
+Linux 微信运行在一个嵌套桌面里，有自己的窗口。你平时就像切到普通 Windows 微信一样使用它，但它实际不在 Windows 本机应用环境中。
 
-项目刻意只使用一个统一监听，不再额外启动单独的 `wechatclip2win --watch`，避免循环同步和互相抢剪切板。
+### Windows 桌面小组件
 
-## Agent 一键安装
+小组件可以读取 Windows 剪切板里的：
+
+- 文字；
+- 图片；
+- 文件。
+
+然后一键同步到 WSL/Linux 微信里。你也可以在小组件里直接启动/关闭 Linux 微信。
+
+### 统一剪切板监听
+
+项目使用一个统一监听来处理双向同步：
+
+- Windows 图片/文件剪切板 -> Linux 微信；
+- Linux/X11 文本剪切板 -> Windows。
+
+它不会再额外启动单独的 `wechatclip2win --watch`，这样可以避免多个监听互相抢剪切板、循环同步、越用越乱。
+
+### 消息提醒和焦点桥
+
+Linux 微信有些消息不会天然出现在 Windows 通知里。本项目包含一套本地桥接脚本，用来尽量转发 Linux 通知信号，并处理“微信以为自己一直在前台”导致不提醒的问题。
+
+提醒能力会受 Linux 微信自身行为影响，不保证所有场景都能 100% 等同原生 Windows 微信，但目标是让日常体验尽量接近。
+
+## 适用场景
+
+这个项目尤其适合：
+
+- Windows 电脑不方便安装微信；
+- 想让微信运行在 WSL/Linux 隔离环境中；
+- 希望 Windows 搜索和开始菜单里尽量不体现 WeChat/微信；
+- 希望 Linux 微信复制出来的文字能直接到 Windows；
+- 希望 Windows 复制的文字、图片、文件能送进 Linux 微信；
+- 愿意折腾一点点 WSL，但希望日常使用足够顺手。
+
+不太适合：
+
+- 完全不想接触 WSL；
+- 期待 100% 原生 Windows 微信体验；
+- 需要企业级稳定通知保证；
+- 不愿意让 agent 或脚本在本机执行安装检查。
+
+## Agent 一键安装 🪄
 
 如果你使用 Codex、Claude Code、Cursor Agent 之类的本地 agent，可以把下面这段话复制给它。发布到 GitHub 后，把 `<REPO_URL>` 替换成你的仓库地址。
 
@@ -123,7 +167,7 @@ wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-widget-h
 powershell -NoProfile -STA -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\WslPrivate\launchers\clipboard-watch.ps1" -Status
 ```
 
-## 目录结构
+## 项目结构
 
 ```text
 app/
@@ -143,8 +187,14 @@ skills/             可选 Codex 维护 skill
 
 简单说：
 
-- 小组件：给人用。
+- 小组件：给人用；
 - skill：给 agent 维修用。
+
+## Star 一下吧 ⭐
+
+如果这个项目刚好解决了你的问题，欢迎点一个 Star。
+
+这会直接影响我后续有没有动力继续维护，比如继续优化通知、剪切板、安装流程、更多发行版适配，以及把小组件做得更好看一点。
 
 ## 隐私说明
 
