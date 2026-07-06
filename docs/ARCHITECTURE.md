@@ -40,6 +40,12 @@ The installer also creates convenience symlinks in the WSL home directory when t
 
 These links let Linux WeChat's file picker send files directly from Windows disks.
 
+## Chinese Input
+
+Fresh WSL/Ubuntu installs usually do not include a Chinese input method usable by Linux GUI apps. `wechat-desktop` exports fcitx5-related input-method variables and starts `fcitx5`, while the installer and doctor expect the distro to have `fcitx5`, `fcitx5-chinese-addons`, and `fcitx5-pinyin`.
+
+If users can launch Linux WeChat but cannot type Chinese, check the input packages and `~/.cache/wechat-desktop/fcitx5.log` before debugging WeChat itself.
+
 ## Components
 
 - `clipboard-widget.ps1`: WinForms desktop widget for manual clipboard preview and sync.

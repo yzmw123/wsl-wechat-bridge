@@ -77,6 +77,28 @@ function Test-WslCommand {
     }
 }
 
+function Test-WslPackage {
+    param(
+        [string]$PackageName,
+        [switch]$Optional
+    )
+
+    $escaped = $PackageName.Replace("'", "'\''")
+    $result = Invoke-WslBash -Command "dpkg -s '$escaped' 2>/dev/null | grep -q '^Status: install ok installed$'"
+    if ($result.ExitCode -eq 0) {
+        Write-Check "ok" "linux package: $PackageName"
+        return
+    }
+
+    if ($Optional) {
+        Write-Check "warn" "optional linux package missing: $PackageName"
+    }
+    else {
+        Write-Check "fail" "linux package missing: $PackageName"
+    }
+    $script:MissingPackages.Add($PackageName)
+}
+
 Write-Host "WSL WeChat Bridge doctor"
 Write-Host "Distro: $Distro"
 Write-Host "InstallRoot: $InstallRoot"
@@ -187,6 +209,12 @@ foreach ($dep in $dependencies) {
     Test-WslCommand -CommandName $dep.Command -PackageName $dep.Package
 }
 Test-WslCommand -CommandName "tint2" -PackageName "tint2" -Optional
+
+Write-Section "Chinese input method"
+Test-WslPackage -PackageName "fcitx5"
+Test-WslPackage -PackageName "fcitx5-chinese-addons"
+Test-WslPackage -PackageName "fcitx5-pinyin"
+Write-Check "ok" "wechat-desktop input env" "Starts fcitx5 and exports XMODIFIERS/GTK_IM_MODULE/QT_IM_MODULE."
 
 Write-Section "Python modules"
 $pythonModules = @(

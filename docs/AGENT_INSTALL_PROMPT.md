@@ -11,7 +11,7 @@ Please install WSL WeChat Bridge from <REPO_URL> on my Windows machine.
 
 First inspect whether WSL2 and a usable Ubuntu distro are already installed. If WSL is missing or needs Windows features/reboot/admin changes, explain exactly what is needed and ask for my approval before changing the system. If WSL is ready, install or reuse Ubuntu-22.04 or another Ubuntu distro, install the latest official Linux WeChat package from https://linux.weixin.qq.com/, then install this bridge project.
 
-After installation, run `scripts\doctor.ps1`, start Linux WeChat through the bridge, open the Windows clipboard widget, verify Windows-to-WSL clipboard sync, Linux-WeChat-to-Windows text sync, and that Linux WeChat can pick Windows files through `~/Windows-Downloads` or similar links. Give me the daily commands. Do not use unofficial WeChat packages unless I explicitly approve.
+After installation, run `scripts\doctor.ps1`, start Linux WeChat through the bridge, verify Chinese input works inside Linux WeChat, open the Windows clipboard widget, verify Windows-to-WSL clipboard sync, Linux-WeChat-to-Windows text sync, and that Linux WeChat can pick Windows files through `~/Windows-Downloads` or similar links. Give me the daily commands. Do not use unofficial WeChat packages unless I explicitly approve.
 ```
 
 ## Full Prompt
@@ -39,7 +39,8 @@ Work step by step:
 2. Prepare the Ubuntu/WSL distro.
    - Choose the distro name, defaulting to `Ubuntu-22.04` if present.
    - Update package metadata.
-   - Install required helper packages for this bridge, such as `x11-utils`, `x11-apps`, `xclip`, `wmctrl`, `xdotool`, `xserver-xephyr`, `openbox`, `tint2`, `dbus-x11`, `fcitx5`, `python3`, `python3-dbus`, and `python3-gi`.
+   - Install required helper packages for this bridge, such as `x11-utils`, `x11-apps`, `xclip`, `wmctrl`, `xdotool`, `xserver-xephyr`, `openbox`, `tint2`, `dbus-x11`, `fcitx5`, `fcitx5-chinese-addons`, `fcitx5-pinyin`, `python3`, `python3-dbus`, and `python3-gi`.
+   - Remember that a fresh WSL/Ubuntu distro usually has no usable Chinese input method for Linux GUI apps. Do not skip the fcitx5 Chinese engine packages; plain `fcitx5` alone may not be enough for pinyin input.
    - If package names differ for the distro, adapt and explain.
 
 3. Install or update official Linux WeChat.
@@ -70,6 +71,7 @@ Work step by step:
    - Start Linux WeChat:
      `wsl -d <DistroName> -- wechat-desktop`
    - Ask me to scan the WeChat login QR code if needed.
+   - Ask me to test typing Chinese in a Linux WeChat chat box. If Chinese input does not work, inspect `fcitx5`, `fcitx5-chinese-addons`, `fcitx5-pinyin`, and the environment variables exported by `wechat-desktop` before blaming WeChat.
    - Check status:
      `wsl -d <DistroName> -- wechat-desktop-status`
      `powershell -NoProfile -STA -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\WslPrivate\launchers\clipboard-watch.ps1" -Status`

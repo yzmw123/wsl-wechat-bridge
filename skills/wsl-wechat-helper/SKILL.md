@@ -107,6 +107,10 @@ The widget also shows the unified clipboard watcher status with a green/yellow i
 
 `wechat-desktop` also starts this unified clipboard watcher automatically when the helper is present, so the user's normal start command should restore clipboard sync after reboot or app restart.
 
+### Chinese Input Method
+
+Fresh WSL/Ubuntu installs usually do not have Chinese input ready for Linux GUI apps. `wechat-desktop` exports fcitx5 input-method environment variables and starts `fcitx5`, but the distro still needs Chinese engine packages such as `fcitx5-chinese-addons` and `fcitx5-pinyin`. If Linux WeChat cannot type Chinese, check those packages and `~/.cache/wechat-desktop/fcitx5.log` first.
+
 ### Windows File Links
 
 For sending Windows files directly from Linux WeChat, the installer creates WSL home links such as `~/Windows-C`, `~/Windows-D`, `~/Windows-Downloads`, `~/Windows-Desktop`, and `~/Windows-Documents`. If the official WeChat package installs a nonstandard command, set `WECHAT_COMMAND=/path/to/wechat` in `~/.config/wsl-wechat-bridge/config`.

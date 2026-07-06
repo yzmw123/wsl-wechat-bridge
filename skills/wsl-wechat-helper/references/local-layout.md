@@ -26,6 +26,22 @@ The installer creates convenience links in the WSL home directory when the Windo
 
 These make Windows files visible in Linux WeChat's file picker, so users can send files from Windows disks directly.
 
+## Chinese Input Method
+
+`wechat-desktop` sets these environment variables before launching Linux WeChat:
+
+- `XMODIFIERS=@im=fcitx`
+- `GTK_IM_MODULE=fcitx`
+- `QT_IM_MODULE=fcitx`
+
+It also starts `fcitx5` and writes logs to `~/.cache/wechat-desktop/fcitx5.log`.
+
+Fresh WSL/Ubuntu installs still need Chinese input engine packages installed, typically:
+
+- `fcitx5`
+- `fcitx5-chinese-addons`
+- `fcitx5-pinyin`
+
 ## Linux Commands
 
 Installed under `/usr/local/bin`:

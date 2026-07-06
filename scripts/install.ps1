@@ -72,6 +72,8 @@ if ($InstallDependencies) {
         "tint2",
         "dbus-x11",
         "fcitx5",
+        "fcitx5-chinese-addons",
+        "fcitx5-pinyin",
         "python3",
         "python3-dbus",
         "python3-gi"
