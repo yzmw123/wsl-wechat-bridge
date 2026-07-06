@@ -4,8 +4,66 @@ set -euo pipefail
 display="${WECHAT_DESKTOP_DISPLAY:-:20}"
 screen="${WECHAT_DESKTOP_SIZE:-1200x800}"
 state_dir="$HOME/.cache/wechat-desktop"
+config_file="${XDG_CONFIG_HOME:-$HOME/.config}/wsl-wechat-bridge/config"
 mkdir -p "$state_dir"
 printf '%s\n' "$display" >"$state_dir/display"
+
+read_config_value() {
+  local key="$1" line value
+  [ -r "$config_file" ] || return 1
+
+  while IFS= read -r line; do
+    line="${line%%#*}"
+    case "$line" in
+      "$key="*)
+        value="${line#*=}"
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        printf '%s\n' "$value"
+        return 0
+        ;;
+    esac
+  done <"$config_file"
+
+  return 1
+}
+
+resolve_wechat_command() {
+  local configured
+
+  configured="${WECHAT_DESKTOP_COMMAND:-}"
+  if [ -z "$configured" ]; then
+    configured="$(read_config_value WECHAT_COMMAND || true)"
+  fi
+
+  if [ -n "$configured" ]; then
+    if command -v "$configured" >/dev/null 2>&1 || [ -x "$configured" ]; then
+      printf '%s\n' "$configured"
+      return 0
+    fi
+    echo "Configured WeChat command is not executable: $configured" >&2
+    echo "Edit $config_file or set WECHAT_DESKTOP_COMMAND." >&2
+    return 1
+  fi
+
+  if command -v wechat >/dev/null 2>&1; then
+    command -v wechat
+    return 0
+  fi
+
+  if [ -x /usr/bin/wechat ]; then
+    printf '%s\n' /usr/bin/wechat
+    return 0
+  fi
+
+  echo "Linux WeChat command was not found." >&2
+  echo "Install official Linux WeChat, or set WECHAT_COMMAND in $config_file." >&2
+  return 1
+}
+
+wechat_command="$(resolve_wechat_command)"
 
 display_num="${display#:}"
 display_num="${display_num%%.*}"
@@ -147,4 +205,4 @@ start_badge_watch
 start_focus_watch
 start_clipboard_watch
 
-exec /usr/bin/wechat "$@"
+exec "$wechat_command" "$@"

@@ -11,6 +11,9 @@ wsl -d Ubuntu-22.04 -- wechat-desktop
 # Status
 wsl -d Ubuntu-22.04 -- wechat-desktop-status
 
+# Public repo health check
+powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Distro Ubuntu-22.04
+
 # Stop
 wsl -d Ubuntu-22.04 -- wechat-desktop-stop
 
@@ -55,6 +58,9 @@ wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-watch-hi
 
 # Unified clipboard watcher log
 Get-Content "$env:LOCALAPPDATA\WslPrivate\launchers\clipboard-watch.log" -Tail 80
+
+# Check Windows file links for direct file sending from Linux WeChat
+wsl -d Ubuntu-22.04 -- bash -lc "ls -ld ~/Windows-* /mnt/c 2>/dev/null"
 ```
 
 ## User-Facing Docs

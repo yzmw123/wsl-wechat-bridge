@@ -6,6 +6,25 @@
 - Main user command: `wsl -d Ubuntu-22.04 -- wechat-desktop`
 - Nested X display: usually `:20`
 - State directory: `~/.cache/wechat-desktop`
+- Config file: `~/.config/wsl-wechat-bridge/config`
+
+Optional config key:
+
+```text
+WECHAT_COMMAND=/path/to/wechat
+```
+
+## Windows File Links
+
+The installer creates convenience links in the WSL home directory when the Windows paths are mounted:
+
+- `~/Windows-C`
+- `~/Windows-D`
+- `~/Windows-Desktop`
+- `~/Windows-Downloads`
+- `~/Windows-Documents`
+
+These make Windows files visible in Linux WeChat's file picker, so users can send files from Windows disks directly.
 
 ## Linux Commands
 
@@ -154,5 +173,6 @@ Project docs:
 
 - `README.md`
 - `docs/`
+- `scripts/doctor.ps1`
 
 Do not hide these files while hiding Windows app/search entries.

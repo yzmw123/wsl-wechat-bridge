@@ -19,6 +19,12 @@ This is a local maintenance skill, not a generic public installer. Prefer preser
 powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\wsl-wechat-helper\scripts\collect-status.ps1"
 ```
 
+For public repo installs, also prefer the project doctor when available:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Distro Ubuntu-22.04
+```
+
 2. If the task is about commands or documentation, read `references/commands.md`.
 3. If the task is about paths, helper files, or architecture, read `references/local-layout.md`.
 4. If the task is about a broken notification, clipboard sync, process stop, or Windows search leak, read `references/troubleshooting.md`.
@@ -100,6 +106,10 @@ The widget also shows the unified clipboard watcher status with a green/yellow i
 `start-clipboard-watch-hidden.vbs` starts the single unified bidirectional watcher: Windows image/file clipboard to Linux WeChat, and Linux WeChat/X11 text clipboard to Windows. Do not start `wechatclip2win --watch` as a separate watcher.
 
 `wechat-desktop` also starts this unified clipboard watcher automatically when the helper is present, so the user's normal start command should restore clipboard sync after reboot or app restart.
+
+### Windows File Links
+
+For sending Windows files directly from Linux WeChat, the installer creates WSL home links such as `~/Windows-C`, `~/Windows-D`, `~/Windows-Downloads`, `~/Windows-Desktop`, and `~/Windows-Documents`. If the official WeChat package installs a nonstandard command, set `WECHAT_COMMAND=/path/to/wechat` in `~/.config/wsl-wechat-bridge/config`.
 
 ### Windows Search Hiding
 

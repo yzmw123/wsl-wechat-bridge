@@ -11,7 +11,7 @@ Please install WSL WeChat Bridge from <REPO_URL> on my Windows machine.
 
 First inspect whether WSL2 and a usable Ubuntu distro are already installed. If WSL is missing or needs Windows features/reboot/admin changes, explain exactly what is needed and ask for my approval before changing the system. If WSL is ready, install or reuse Ubuntu-22.04 or another Ubuntu distro, install the latest official Linux WeChat package from https://linux.weixin.qq.com/, then install this bridge project.
 
-After installation, start Linux WeChat through the bridge, open the Windows clipboard widget, verify Windows-to-WSL clipboard sync and Linux-WeChat-to-Windows text sync, and give me the daily commands. Do not use unofficial WeChat packages unless I explicitly approve.
+After installation, run `scripts\doctor.ps1`, start Linux WeChat through the bridge, open the Windows clipboard widget, verify Windows-to-WSL clipboard sync, Linux-WeChat-to-Windows text sync, and that Linux WeChat can pick Windows files through `~/Windows-Downloads` or similar links. Give me the daily commands. Do not use unofficial WeChat packages unless I explicitly approve.
 ```
 
 ## Full Prompt
@@ -39,7 +39,7 @@ Work step by step:
 2. Prepare the Ubuntu/WSL distro.
    - Choose the distro name, defaulting to `Ubuntu-22.04` if present.
    - Update package metadata.
-   - Install required helper packages for this bridge, such as `x11-utils`, `xclip`, `wmctrl`, `xdotool`, `xserver-xephyr`, `openbox`, `tint2`, `dbus-x11`, `fcitx5`, `python3-dbus`, and `python3-gi`.
+   - Install required helper packages for this bridge, such as `x11-utils`, `x11-apps`, `xclip`, `wmctrl`, `xdotool`, `xserver-xephyr`, `openbox`, `tint2`, `dbus-x11`, `fcitx5`, `python3`, `python3-dbus`, and `python3-gi`.
    - If package names differ for the distro, adapt and explain.
 
 3. Install or update official Linux WeChat.
@@ -49,13 +49,20 @@ Work step by step:
    - Download the package only from the official Tencent/WeChat download target linked by that page.
    - Install it in WSL, usually with `sudo apt install ./downloaded-package.deb` or `sudo dpkg -i ... && sudo apt -f install`.
    - Verify that the `wechat` command exists.
+   - If the official package installs WeChat under a different command path, create `~/.config/wsl-wechat-bridge/config` with `WECHAT_COMMAND=/path/to/wechat`.
 
 4. Install WSL WeChat Bridge from the repository.
    - Clone `<REPO_URL>` into a reasonable local folder.
    - Run the project's installer from PowerShell:
      `powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Distro <DistroName>`
+     If required dependencies are missing and I approve sudo changes, use:
+     `powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Distro <DistroName> -InstallDependencies`
    - Confirm Windows helper files exist under `%LOCALAPPDATA%\WslPrivate\launchers`.
+   - Confirm `notice.ps1` exists there; it may be a hidden file.
    - Confirm WSL helper commands exist in `/usr/local/bin`, especially `wechat-desktop`, `wechat-desktop-stop`, `winclip2wechat`, and `wechatclip2win`.
+   - Confirm Windows file links exist in WSL, such as `~/Windows-C`, `~/Windows-Downloads`, and `~/Windows-Documents`, so Linux WeChat can send files directly from Windows disks.
+   - Run:
+     `powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Distro <DistroName>`
 
 5. Start and verify.
    - Start the Windows clipboard widget:
@@ -70,9 +77,11 @@ Work step by step:
 6. Verify clipboard behavior.
    - Test Windows-to-Linux: copy text in Windows, use the widget's "同步到 WSL", then paste into Linux WeChat.
    - Test Linux-to-Windows: copy text inside Linux WeChat, wait briefly, then check whether Windows can paste it.
+   - Test file sending: in Linux WeChat, choose a file from `~/Windows-Downloads` or `~/Windows-Documents`.
    - If automatic sync is not running, use the widget's listener status row or start:
      `wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-watch-hidden.vbs"`
    - Do not start a separate `wechatclip2win --watch`; this project uses one unified watcher.
+   - Remember that automatic watcher syncs Windows image/file clipboard to Linux and Linux text clipboard to Windows. Windows text to Linux is intentionally done through the widget button or `winclip2wechat` to avoid clipboard loops.
 
 7. Final report.
    - Tell me the distro name, where the repo was cloned, and whether WeChat, the bridge, the widget, and clipboard sync all work.

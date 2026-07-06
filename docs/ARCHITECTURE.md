@@ -16,6 +16,30 @@ Linux runtime state lives under:
 ~/.cache/wechat-desktop
 ```
 
+Optional Linux-side configuration lives under:
+
+```text
+~/.config/wsl-wechat-bridge/config
+```
+
+Supported keys:
+
+```text
+WECHAT_COMMAND=/path/to/wechat
+```
+
+The installer also creates convenience symlinks in the WSL home directory when the corresponding Windows paths are available:
+
+```text
+~/Windows-C
+~/Windows-D
+~/Windows-Desktop
+~/Windows-Downloads
+~/Windows-Documents
+```
+
+These links let Linux WeChat's file picker send files directly from Windows disks.
+
 ## Components
 
 - `clipboard-widget.ps1`: WinForms desktop widget for manual clipboard preview and sync.
@@ -25,6 +49,7 @@ Linux runtime state lives under:
 - `focus-watch.ps1` and `wsl-app-focus-bridge`: keep Linux WeChat from always thinking it is foreground.
 - `wsl-app-notify-bridge` and `wsl-app-notification-daemon`: forward Linux notification signals to Windows.
 - `wsl-app-badge-notify-watch`: optional unread badge watcher for notification experiments.
+- `scripts/doctor.ps1`: read-only public health check for WSL, helper files, dependencies, WeChat command detection, and Windows file links.
 
 ## Skill vs Widget
 
