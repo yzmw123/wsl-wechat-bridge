@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="$HOME/.cache/wechat-desktop"
+display="${WECHAT_DESKTOP_DISPLAY:-}"
+force=0
+dry_run=0
+
+usage() {
+  cat <<'EOF'
+Usage: wechat-desktop-stop [--force] [--dry-run]
+
+Stops the nested WeChat Desktop session: Linux WeChat, Xephyr, openbox,
+tint2, and the Windows notification bridge.
+
+Options:
+  --force    Use SIGKILL after a short graceful shutdown attempt.
+  --dry-run  Print matching processes without stopping them.
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --force) force=1 ;;
+    --dry-run) dry_run=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; exit 64 ;;
+  esac
+  shift
+done
+
+if [ -z "$display" ]; then
+  display="$(cat "$state_dir/display" 2>/dev/null || true)"
+fi
+if [ -z "$display" ]; then
+  display=":20"
+fi
+
+display_num="${display#:}"
+display_num="${display_num%%.*}"
+uid="$(id -u)"
+
+windows_launcher_file() {
+  local filename="$1"
+  local localapp candidate
+
+  localapp="$(cmd.exe /C echo %LOCALAPPDATA% 2>/dev/null | tr -d '\r' || true)"
+  if [ -n "$localapp" ] && [[ "$localapp" != *%* ]]; then
+    candidate="$(wslpath -u "${localapp}\\WslPrivate\\launchers\\${filename}" 2>/dev/null || true)"
+    if [ -n "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+match_processes() {
+  ps -u "$uid" -o pid=,args= |
+    awk '
+      /bash -lc/ { next }
+      /awk .*wsl-app-notify-bridge/ { next }
+      /wechat-desktop-stop/ { next }
+      /\/usr\/bin\/wechat/ ||
+      /\/opt\/wechat\// ||
+      /WeChatAppEx/ ||
+      /Xephyr :20/ ||
+      /openbox/ ||
+      /tint2/ ||
+      /xmessage .*wsl-focus-sink/ ||
+      /wsl-app-notify-bridge/ ||
+      /wsl-app-badge-notify-watch/ {
+        print
+      }
+    '
+}
+
+pid_from_file() {
+  local file="$1"
+  local pid
+  pid="$(cat "$file" 2>/dev/null || true)"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    printf '%s\n' "$pid"
+  fi
+}
+
+pids_to_stop() {
+  {
+    pid_from_file "$state_dir/xephyr.pid"
+    pid_from_file "$state_dir/openbox.pid"
+    pid_from_file "$state_dir/tint2.pid"
+    pid_from_file "$state_dir/notice-bridge.pid"
+    pid_from_file "$state_dir/focus-sink.pid"
+    pid_from_file "$state_dir/badge-notify-watch.pid"
+    pgrep -u "$uid" -x wechat 2>/dev/null || true
+    pgrep -u "$uid" -x WeChatAppEx 2>/dev/null || true
+    pgrep -u "$uid" -x wxocr 2>/dev/null || true
+    pgrep -u "$uid" -x wxplayer 2>/dev/null || true
+    pgrep -u "$uid" -x wxutility 2>/dev/null || true
+    pgrep -u "$uid" -f '/opt/wechat/' 2>/dev/null || true
+    pgrep -u "$uid" -f "Xephyr ${display}" 2>/dev/null || true
+    pgrep -u "$uid" -f 'xmessage .*wsl-focus-sink' 2>/dev/null || true
+    ps -u "$uid" -o pid=,args= |
+      awk '/\/usr\/local\/bin\/wsl-app-badge-notify-watch/ && !/py_compile/ { print $1 }'
+    ps -u "$uid" -o pid=,args= |
+      awk '/bash \/usr\/local\/bin\/wsl-app-notify-bridge$/ { print $1 }'
+  } | awk 'NF && !seen[$1]++ { print $1 }'
+}
+
+if [ "$dry_run" -eq 1 ]; then
+  printf 'display=%s\n' "$display"
+  mapfile -t pids < <(pids_to_stop)
+  if [ "${#pids[@]}" -eq 0 ]; then
+    printf 'no matching processes\n'
+  else
+    pid_csv="$(IFS=,; printf '%s' "${pids[*]}")"
+    ps -p "$pid_csv" -o pid=,args= 2>/dev/null || true
+  fi
+  exit 0
+fi
+
+export DISPLAY="$display"
+unset WAYLAND_DISPLAY
+
+if xdpyinfo -display "$display" >/dev/null 2>&1; then
+  wmctrl -cx wechat.wechat >/dev/null 2>&1 || true
+  sleep 1
+fi
+
+mapfile -t pids < <(pids_to_stop)
+
+if [ "${#pids[@]}" -gt 0 ]; then
+  kill -TERM "${pids[@]}" 2>/dev/null || true
+  sleep 2
+fi
+
+still_running=()
+for pid in "${pids[@]:-}"; do
+  if kill -0 "$pid" 2>/dev/null; then
+    still_running+=("$pid")
+  fi
+done
+
+if [ "${#still_running[@]}" -gt 0 ]; then
+  if [ "$force" -eq 1 ]; then
+    kill -KILL "${still_running[@]}" 2>/dev/null || true
+  else
+    kill -KILL "${still_running[@]}" 2>/dev/null || true
+  fi
+fi
+
+rm -f \
+  "$state_dir/xephyr.pid" \
+  "$state_dir/openbox.pid" \
+  "$state_dir/tint2.pid" \
+  "$state_dir/notice-bridge.pid" \
+  "$state_dir/notification-daemon.pid" \
+  "$state_dir/focus-sink.pid" \
+  "$state_dir/badge-notify-watch.pid" \
+  "$state_dir/notice-bridge.seen" \
+  "/tmp/.X${display_num}-lock" \
+  "/tmp/.X11-unix/X${display_num}" \
+  2>/dev/null || true
+
+focus_stop="$(windows_launcher_file "stop-focus-watch.cmd" || true)"
+if [ -f "$focus_stop" ]; then
+  cmd.exe /C "$(wslpath -w "$focus_stop")" >/dev/null 2>&1 || true
+fi
+
+printf 'stopped display=%s\n' "$display"

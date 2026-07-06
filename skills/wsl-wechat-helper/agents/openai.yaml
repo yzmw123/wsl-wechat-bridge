@@ -1,0 +1,4 @@
+interface:
+  display_name: "WSL WeChat Helper"
+  short_description: "Maintain the local WSL WeChat helper setup"
+  default_prompt: "Use $wsl-wechat-helper to check, repair, or document my local WSL WeChat desktop workflow."

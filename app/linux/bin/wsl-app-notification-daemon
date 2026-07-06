@@ -1,0 +1,338 @@
+#!/usr/bin/env python3
+import os
+import glob
+import subprocess
+import sys
+import time
+from datetime import datetime
+
+import dbus
+import dbus.service
+import dbus.mainloop.glib
+from gi.repository import GLib
+
+
+STATE_DIR = os.environ.get("APP_NOTICE_STATE_DIR") or os.path.expanduser("~/.cache/wechat-desktop")
+os.makedirs(STATE_DIR, exist_ok=True)
+LOG_FILE = os.path.join(STATE_DIR, "notification-daemon.log")
+PID_FILE = os.path.join(STATE_DIR, "notification-daemon.pid")
+FILE_WATCH_INTERVAL_SECONDS = 2
+FILE_NOTICE_DEBOUNCE_SECONDS = 18
+FILE_NOTICE_IGNORE_SECONDS = 5
+FOCUS_STATE_MAX_AGE_SECONDS = 10
+FILE_NOTICE_MODE = os.environ.get("WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE", "log-only").strip().lower()
+
+file_signature_cache = {}
+last_file_notice_at = 0.0
+last_file_suppressed_at = 0.0
+focus_state_file_cache = ""
+started_at = time.monotonic()
+
+
+def log(message):
+    try:
+        with open(LOG_FILE, "a", encoding="utf-8") as fh:
+            fh.write(f"{datetime.now().astimezone().isoformat()} {message}\n")
+    except Exception:
+        pass
+
+
+def windows_helper_path():
+    local_app_data = ""
+    try:
+        output = subprocess.check_output(
+            ["cmd.exe", "/C", "echo", "%LOCALAPPDATA%"],
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        )
+        value = output.decode("utf-8", errors="ignore").strip()
+        if value and "%" not in value:
+            local_app_data = value
+    except Exception:
+        pass
+
+    if local_app_data:
+        try:
+            helper = subprocess.check_output(
+                ["wslpath", "-u", local_app_data + "\\WslPrivate\\launchers\\notice.ps1"],
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+            ).decode("utf-8", errors="ignore").strip()
+            if helper and os.path.exists(helper):
+                return helper
+        except Exception:
+            pass
+
+    return ""
+
+
+def windows_launcher_file(filename):
+    local_app_data = ""
+    try:
+        output = subprocess.check_output(
+            ["cmd.exe", "/C", "echo", "%LOCALAPPDATA%"],
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        )
+        value = output.decode("utf-8", errors="ignore").strip()
+        if value and "%" not in value:
+            local_app_data = value
+    except Exception:
+        pass
+
+    if local_app_data:
+        try:
+            path = subprocess.check_output(
+                ["wslpath", "-u", local_app_data + "\\WslPrivate\\launchers\\" + filename],
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+            ).decode("utf-8", errors="ignore").strip()
+            if path:
+                return path
+        except Exception:
+            pass
+
+    return ""
+
+
+def windows_foreground_is_wechat_desktop():
+    global focus_state_file_cache
+
+    state_file = os.environ.get("WSL_FOCUS_STATE_FILE") or focus_state_file_cache
+    if not state_file:
+        state_file = windows_launcher_file("focus-watch.state")
+        focus_state_file_cache = state_file
+
+    try:
+        with open(state_file, "r", encoding="utf-8-sig") as fh:
+            fields = {}
+            for line in fh:
+                line = line.rstrip("\n")
+                if "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                fields[key.strip()] = value.strip()
+
+        state = fields.get("state", "").lower()
+        timestamp = fields.get("timestamp", "")
+        if state != "active":
+            return False
+
+        try:
+            stamp = datetime.fromisoformat(timestamp)
+            age = (datetime.now().astimezone() - stamp).total_seconds()
+        except Exception:
+            age = FOCUS_STATE_MAX_AGE_SECONDS + 1
+
+        if age > FOCUS_STATE_MAX_AGE_SECONDS:
+            log(f"file-notice-focus-state=stale age={age:.1f} state={state}")
+            return False
+
+        return True
+    except FileNotFoundError:
+        return False
+    except Exception as exc:
+        log(f"file-notice-focus-state-error={exc}")
+        return False
+
+
+def send_windows_notice(reason):
+    helper = windows_helper_path()
+    if not os.path.exists(helper):
+        log(f"notice helper not found: {helper}")
+        return
+
+    try:
+        win_helper = subprocess.check_output(["wslpath", "-w", helper], timeout=3).decode("utf-8", errors="ignore").strip()
+    except Exception as exc:
+        log(f"wslpath failed: {exc}")
+        return
+
+    ps_launcher = (
+        "$p = $env:WSL_NOTICE_HELPER; "
+        "if ([string]::IsNullOrWhiteSpace($p)) { throw 'WSL_NOTICE_HELPER is empty' }; "
+        "$argList = @('-NoLogo','-NoProfile','-STA','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$p); "
+        "Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList $argList"
+    )
+
+    env = os.environ.copy()
+    env["WSL_NOTICE_HELPER"] = win_helper
+    if env.get("WSLENV"):
+        env["WSLENV"] = f"{env['WSLENV']}:WSL_NOTICE_HELPER"
+    else:
+        env["WSLENV"] = "WSL_NOTICE_HELPER"
+
+    log(f"notify reason={reason} helper={helper}")
+    try:
+        subprocess.Popen(
+            [
+                "powershell.exe",
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                ps_launcher,
+            ],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        log("launch=start-process")
+    except Exception as exc:
+        log(f"launch=failed error={exc}")
+
+
+def discover_activity_files():
+    patterns = [
+        "~/xwechat_files/*/db_storage/message/*.db-wal",
+        "~/xwechat_files/*/db_storage/session/*.db-wal",
+        "~/xwechat_files/*/db_storage/message/*.db-incremental.material",
+        "~/xwechat_files/*/db_storage/session/*.db-incremental.material",
+    ]
+
+    files = []
+    seen = set()
+    for pattern in patterns:
+        for path in glob.glob(os.path.expanduser(pattern)):
+            if path not in seen:
+                seen.add(path)
+                files.append(path)
+
+    # Media messages often create files under cache/YYYY-MM/Message. Watch a
+    # bounded recent slice so polling stays cheap.
+    for root in glob.glob(os.path.expanduser("~/xwechat_files/*/cache/*/Message")):
+        for current_root, dirs, filenames in os.walk(root):
+            dirs[:] = dirs[:80]
+            for name in filenames[:200]:
+                path = os.path.join(current_root, name)
+                if path not in seen:
+                    seen.add(path)
+                    files.append(path)
+            if len(files) >= 1200:
+                return files
+
+    return files
+
+
+def file_signature(path):
+    try:
+        st = os.stat(path)
+        return (st.st_mtime_ns, st.st_size)
+    except FileNotFoundError:
+        return None
+    except Exception:
+        return None
+
+
+def poll_message_activity():
+    global file_signature_cache, last_file_notice_at, last_file_suppressed_at
+
+    try:
+        changed = []
+        current_paths = set(discover_activity_files())
+
+        for path in current_paths:
+            sig = file_signature(path)
+            if sig is None:
+                continue
+            old_sig = file_signature_cache.get(path)
+            file_signature_cache[path] = sig
+            if old_sig is not None and old_sig != sig:
+                changed.append(path)
+
+        for path in list(file_signature_cache):
+            if path not in current_paths:
+                del file_signature_cache[path]
+
+        if changed:
+            now = time.monotonic()
+            sample = ", ".join(os.path.basename(path) for path in changed[:4])
+            log(f"file-activity count={len(changed)} sample={sample}")
+            if now - started_at >= FILE_NOTICE_IGNORE_SECONDS and now - last_file_notice_at >= FILE_NOTICE_DEBOUNCE_SECONDS:
+                if FILE_NOTICE_MODE not in ("1", "true", "yes", "on", "notify"):
+                    if now - last_file_suppressed_at >= FILE_NOTICE_DEBOUNCE_SECONDS:
+                        log(f"file-notice-suppressed=log-only mode={FILE_NOTICE_MODE or 'empty'}")
+                        last_file_suppressed_at = now
+                    return True
+                if windows_foreground_is_wechat_desktop():
+                    if now - last_file_suppressed_at >= FILE_NOTICE_DEBOUNCE_SECONDS:
+                        log("file-notice-suppressed=windows-foreground-wechat")
+                        last_file_suppressed_at = now
+                    return True
+                last_file_notice_at = now
+                send_windows_notice(f"file-activity:{sample}")
+    except Exception as exc:
+        log(f"file-watch-error={exc}")
+
+    return True
+
+
+class NotificationServer(dbus.service.Object):
+    def __init__(self, bus, object_path="/org/freedesktop/Notifications"):
+        super().__init__(bus, object_path)
+        self.next_id = 1
+
+    @dbus.service.method("org.freedesktop.Notifications", in_signature="", out_signature="as")
+    def GetCapabilities(self):
+        return ["body"]
+
+    @dbus.service.method("org.freedesktop.Notifications", in_signature="", out_signature="ssss")
+    def GetServerInformation(self):
+        return ("WSL App Notify Bridge", "local", "1.0", "1.2")
+
+    @dbus.service.method("org.freedesktop.Notifications", in_signature="u", out_signature="")
+    def CloseNotification(self, notification_id):
+        return
+
+    @dbus.service.method("org.freedesktop.Notifications", in_signature="susssasa{sv}i", out_signature="u")
+    def Notify(self, app_name, replaces_id, app_icon, summary, body, actions, hints, expire_timeout):
+        notification_id = int(replaces_id) if int(replaces_id) > 0 else self.next_id
+        if int(replaces_id) <= 0:
+            self.next_id += 1
+
+        safe_app = str(app_name).replace("\n", " ")[:80]
+        safe_summary = str(summary).replace("\n", " ")[:120]
+        log(f"dbus-notify id={notification_id} app={safe_app} summary={safe_summary}")
+        send_windows_notice(f"dbus:{safe_app}:{safe_summary}")
+        return dbus.UInt32(notification_id)
+
+
+def main():
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        log("error=DBUS_SESSION_BUS_ADDRESS is empty")
+        return 2
+
+    with open(PID_FILE, "w", encoding="utf-8") as fh:
+        fh.write(str(os.getpid()))
+
+    dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+    bus = dbus.SessionBus()
+    name = dbus.service.BusName("org.freedesktop.Notifications", bus, do_not_queue=True)
+    NotificationServer(bus)
+    for path in discover_activity_files():
+        sig = file_signature(path)
+        if sig is not None:
+            file_signature_cache[path] = sig
+    log(f"started pid={os.getpid()} bus={os.environ.get('DBUS_SESSION_BUS_ADDRESS')}")
+    log(f"file-watch started files={len(file_signature_cache)}")
+    log(f"file-notice-mode={FILE_NOTICE_MODE or 'empty'}")
+    GLib.timeout_add_seconds(FILE_WATCH_INTERVAL_SECONDS, poll_message_activity)
+    loop = GLib.MainLoop()
+    try:
+        loop.run()
+    finally:
+        try:
+            os.remove(PID_FILE)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+        del name
+
+
+if __name__ == "__main__":
+    sys.exit(main())

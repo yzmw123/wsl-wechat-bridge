@@ -1,0 +1,25 @@
+# Runtime state
+*.log
+*.pid
+*.state
+*.tmp
+
+# PowerShell/editor noise
+*.ps1xml
+.vscode/
+.idea/
+
+# Generated archives/packages
+*.zip
+*.7z
+dist/
+build/
+
+# Python checks
+__pycache__/
+*.pyc
+
+# OS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store

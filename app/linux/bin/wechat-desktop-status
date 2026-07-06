@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="$HOME/.cache/wechat-desktop"
+display="${WECHAT_DESKTOP_DISPLAY:-}"
+
+if [ -z "$display" ]; then
+  display="$(cat "$state_dir/display" 2>/dev/null || true)"
+fi
+if [ -z "$display" ]; then
+  display=":20"
+fi
+
+uid="$(id -u)"
+
+printf 'display=%s\n' "$display"
+
+if xdpyinfo -display "$display" >/dev/null 2>&1; then
+  printf 'desktop=running\n'
+else
+  printf 'desktop=stopped\n'
+fi
+
+wechat_pids="$(pgrep -u "$uid" -x wechat 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+xephyr_pids="$(pgrep -u "$uid" -f "Xephyr ${display}" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+bridge_pids="$(
+  ps -u "$uid" -o pid=,args= |
+    awk '/bash \/usr\/local\/bin\/wsl-app-notify-bridge$/ { print $1 }' |
+    tr '\n' ' ' |
+    sed 's/[[:space:]]*$//'
+)"
+badge_pids="$(
+  ps -u "$uid" -o pid=,args= |
+    awk '/\/usr\/local\/bin\/wsl-app-badge-notify-watch/ && !/--status/ && !/py_compile/ { print $1 }' |
+    tr '\n' ' ' |
+    sed 's/[[:space:]]*$//'
+)"
+
+printf 'wechat_pids=%s\n' "${wechat_pids:-none}"
+printf 'xephyr_pids=%s\n' "${xephyr_pids:-none}"
+printf 'notice_bridge_pids=%s\n' "${bridge_pids:-none}"
+printf 'badge_watch_pids=%s\n' "${badge_pids:-none}"
+if command -v wsl-app-badge-notify-watch >/dev/null 2>&1; then
+  printf 'badge_watch=\n'
+  wsl-app-badge-notify-watch --status 2>/dev/null | sed 's/^/  /'
+fi
+
+if command -v wsl-app-focus-bridge >/dev/null 2>&1 && xdpyinfo -display "$display" >/dev/null 2>&1; then
+  printf 'focus_bridge=\n'
+  DISPLAY="$display" wsl-app-focus-bridge --status 2>/dev/null | sed 's/^/  /' || true
+fi
+
+if command -v wmctrl >/dev/null 2>&1 && xdpyinfo -display "$display" >/dev/null 2>&1; then
+  printf 'windows=\n'
+  DISPLAY="$display" wmctrl -lpx 2>/dev/null | sed 's/^/  /' || true
+fi

@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+display="${WECHAT_DESKTOP_DISPLAY:-:20}"
+screen="${WECHAT_DESKTOP_SIZE:-1200x800}"
+state_dir="$HOME/.cache/wechat-desktop"
+mkdir -p "$state_dir"
+printf '%s\n' "$display" >"$state_dir/display"
+
+display_num="${display#:}"
+display_num="${display_num%%.*}"
+
+if ! xdpyinfo -display "$display" >/dev/null 2>&1; then
+  rm -f "/tmp/.X${display_num}-lock" "/tmp/.X11-unix/X${display_num}" 2>/dev/null || true
+  nohup Xephyr "$display" -screen "$screen" -resizeable -ac -br -title "WeChat Desktop" \
+    >"$state_dir/xephyr.log" 2>&1 &
+  echo $! >"$state_dir/xephyr.pid"
+
+  for _ in $(seq 1 60); do
+    if xdpyinfo -display "$display" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
+fi
+
+if ! xdpyinfo -display "$display" >/dev/null 2>&1; then
+  echo "Failed to start nested X display $display" >&2
+  tail -n 80 "$state_dir/xephyr.log" >&2 || true
+  exit 1
+fi
+
+export DISPLAY="$display"
+unset WAYLAND_DISPLAY
+
+export XMODIFIERS="@im=fcitx"
+export GTK_IM_MODULE=fcitx
+export QT_IM_MODULE=fcitx
+export SDL_IM_MODULE=fcitx
+export INPUT_METHOD=fcitx
+export XIM_PROGRAM=fcitx5
+export QT_QPA_PLATFORM=xcb
+export QT_XCB_NO_XI2=1
+
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+  eval "$(dbus-launch --sh-syntax)"
+fi
+
+if ! ps -p "$(cat "$state_dir/openbox.pid" 2>/dev/null || echo 0)" >/dev/null 2>&1; then
+  nohup openbox >"$state_dir/openbox.log" 2>&1 &
+  echo $! >"$state_dir/openbox.pid"
+  sleep 0.5
+fi
+
+start_panel() {
+  if ! command -v tint2 >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ps -p "$(cat "$state_dir/tint2.pid" 2>/dev/null || echo 0)" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if [ -r /etc/xdg/tint2/tint2rc ]; then
+    nohup tint2 -c /etc/xdg/tint2/tint2rc >"$state_dir/tint2.log" 2>&1 &
+  else
+    nohup tint2 >"$state_dir/tint2.log" 2>&1 &
+  fi
+  echo $! >"$state_dir/tint2.pid"
+  sleep 0.3
+}
+
+start_panel
+
+windows_launcher_file() {
+  local filename="$1"
+  local localapp candidate
+
+  localapp="$(cmd.exe /C echo %LOCALAPPDATA% 2>/dev/null | tr -d '\r' || true)"
+  if [ -n "$localapp" ] && [[ "$localapp" != *%* ]]; then
+    candidate="$(wslpath -u "${localapp}\\WslPrivate\\launchers\\${filename}" 2>/dev/null || true)"
+    if [ -n "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+start_notice_bridge() {
+  if ! command -v wsl-app-notify-bridge >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ps -p "$(cat "$state_dir/notice-bridge.pid" 2>/dev/null || echo 0)" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  nohup wsl-app-notify-bridge >"$state_dir/notice-bridge-start.log" 2>&1 &
+  sleep 0.1
+}
+
+start_badge_watch() {
+  if ! command -v wsl-app-badge-notify-watch >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ps -p "$(cat "$state_dir/badge-notify-watch.pid" 2>/dev/null || echo 0)" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  nohup wsl-app-badge-notify-watch --display "$display" >"$state_dir/badge-notify-watch-start.log" 2>&1 &
+  sleep 0.1
+}
+
+start_focus_watch() {
+  local helper
+  helper="$(windows_launcher_file "start-focus-watch-hidden.vbs" || true)"
+  if [ ! -f "$helper" ]; then
+    return 0
+  fi
+
+  wscript.exe //B "$(wslpath -w "$helper")" >/dev/null 2>&1 || true
+}
+
+start_clipboard_watch() {
+  local helper
+  helper="$(windows_launcher_file "start-clipboard-watch-hidden.vbs" || true)"
+  if [ ! -f "$helper" ]; then
+    return 0
+  fi
+
+  wscript.exe //B "$(wslpath -w "$helper")" >/dev/null 2>&1 || true
+}
+
+pkill -x fcitx5 2>/dev/null || true
+nohup fcitx5 --disable=wayland --disable=waylandim -d --replace --verbose '*'=0 \
+  >"$state_dir/fcitx5.log" 2>&1 || true
+
+pkill -x wechat 2>/dev/null || true
+pkill -x WeChatAppEx 2>/dev/null || true
+sleep 0.5
+
+start_notice_bridge
+start_badge_watch
+start_focus_watch
+start_clipboard_watch
+
+exec /usr/bin/wechat "$@"

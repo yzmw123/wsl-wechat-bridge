@@ -1,0 +1,240 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${WECHAT_DESKTOP_STATE_DIR:-$HOME/.cache/wechat-desktop}"
+mkdir -p "$state_dir"
+
+display="${WECHAT_DESKTOP_DISPLAY:-}"
+if [ -z "$display" ]; then
+  display="$(cat "$state_dir/display" 2>/dev/null || true)"
+fi
+if [ -z "$display" ]; then
+  display=":20"
+fi
+
+log_file="$state_dir/wechatclip2win.log"
+pid_file="$state_dir/wechatclip2win.pid"
+last_text_file="$state_dir/wechatclip2win-last.txt"
+interval="0.8"
+
+usage() {
+  cat <<'EOF'
+Usage: wechatclip2win [--probe] [--watch] [--stop] [--status] [--interval SECONDS]
+
+Copies text from the nested Linux/X11 clipboard used by WeChat Desktop into
+the Windows clipboard. Copy text in Linux WeChat, run this command, then paste
+directly in Windows.
+
+Options:
+  --probe             Print clipboard kind/hash without changing Windows clipboard.
+  --watch             Keep syncing Linux clipboard text to Windows clipboard.
+  --stop              Stop the background watcher started with --watch.
+  --status            Show watcher status.
+  --interval SECONDS  Watch polling interval. Default: 0.8.
+EOF
+}
+
+log() {
+  printf '%s %s\n' "$(date -Is)" "$*" >>"$log_file"
+}
+
+is_running_pid() {
+  local pid="${1:-}"
+  [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1
+}
+
+read_linux_clipboard() {
+  if ! command -v xclip >/dev/null 2>&1; then
+    echo "xclip is required but not installed." >&2
+    return 70
+  fi
+
+  env DISPLAY="$display" xclip -selection clipboard -o -t UTF8_STRING 2>/dev/null ||
+    env DISPLAY="$display" xclip -selection clipboard -o -t 'text/plain;charset=utf-8' 2>/dev/null ||
+    env DISPLAY="$display" xclip -selection clipboard -o -t text/plain 2>/dev/null
+}
+
+text_hash() {
+  sha256sum "$1" | awk '{print $1}'
+}
+
+clipboard_targets() {
+  env DISPLAY="$display" xclip -selection clipboard -o -t TARGETS 2>/dev/null |
+    tr '\n' ',' |
+    sed 's/,$//'
+}
+
+target_list_has() {
+  local targets="$1"
+  local pattern="$2"
+  printf '%s\n' "$targets" | grep -Eiq "$pattern"
+}
+
+probe_clipboard() {
+  local targets tmp_file hash byte_count
+  targets="$(clipboard_targets || true)"
+
+  if [ -n "$targets" ] && target_list_has "$targets" '(^|,)image/png(,|$)|(^|,)text/uri-list(,|$)'; then
+    printf 'display=%s\nkind=skip\ntargets=%s\n' "$display" "$targets"
+    return 0
+  fi
+
+  tmp_file="$(mktemp "$state_dir/wechatclip2win-probe.XXXXXX")"
+  if ! read_linux_clipboard >"$tmp_file"; then
+    rm -f "$tmp_file"
+    printf 'display=%s\nkind=none\ntargets=%s\n' "$display" "$targets"
+    return 2
+  fi
+
+  if [ ! -s "$tmp_file" ]; then
+    rm -f "$tmp_file"
+    printf 'display=%s\nkind=empty\ntargets=%s\n' "$display" "$targets"
+    return 2
+  fi
+
+  hash="$(text_hash "$tmp_file")"
+  byte_count="$(wc -c <"$tmp_file" | tr -d '[:space:]')"
+  rm -f "$tmp_file"
+
+  printf 'display=%s\nkind=text\nhash=%s\nbytes=%s\ntargets=%s\n' "$display" "$hash" "$byte_count" "$targets"
+}
+
+copy_file_to_windows_clipboard() {
+  local src_file="$1"
+  local win_file
+  win_file="$(wslpath -w "$src_file")"
+
+  powershell.exe -NoLogo -NoProfile -STA -ExecutionPolicy Bypass \
+    -Command '& { param($Path) $text = Get-Content -LiteralPath $Path -Raw -Encoding UTF8; Set-Clipboard -Value $text }' \
+    "$win_file" >/dev/null 2>&1
+}
+
+sync_once() {
+  local tmp_file hash byte_count char_count targets
+  targets="$(clipboard_targets || true)"
+  if [ -n "$targets" ] && target_list_has "$targets" '(^|,)image/png(,|$)|(^|,)text/uri-list(,|$)'; then
+    echo "Linux clipboard is not plain text on DISPLAY=$display." >&2
+    echo "Clipboard targets: $targets" >&2
+    return 2
+  fi
+
+  tmp_file="$(mktemp "$state_dir/wechatclip2win.XXXXXX")"
+
+  if ! read_linux_clipboard >"$tmp_file"; then
+    rm -f "$tmp_file"
+    echo "No readable Linux clipboard text was found on DISPLAY=$display." >&2
+    return 2
+  fi
+
+  if [ ! -s "$tmp_file" ]; then
+    rm -f "$tmp_file"
+    echo "Linux clipboard text is empty on DISPLAY=$display." >&2
+    return 2
+  fi
+
+  mv -f "$tmp_file" "$last_text_file"
+  copy_file_to_windows_clipboard "$last_text_file"
+
+  hash="$(text_hash "$last_text_file")"
+  byte_count="$(wc -c <"$last_text_file" | tr -d '[:space:]')"
+  char_count="$(python3 - "$last_text_file" <<'PY'
+import pathlib
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+print(len(text))
+PY
+)"
+
+  log "synced display=$display bytes=$byte_count chars=$char_count sha256=$hash"
+  printf 'copied_to_windows bytes=%s chars=%s display=%s\n' "$byte_count" "$char_count" "$display"
+}
+
+stop_watcher() {
+  local pid
+  pid="$(cat "$pid_file" 2>/dev/null || true)"
+  if is_running_pid "$pid"; then
+    kill "$pid" 2>/dev/null || true
+    sleep 0.3
+  fi
+  rm -f "$pid_file"
+  printf 'wechatclip2win_watch=stopped\n'
+}
+
+status() {
+  local pid
+  pid="$(cat "$pid_file" 2>/dev/null || true)"
+  printf 'display=%s\n' "$display"
+  if is_running_pid "$pid"; then
+    printf 'wechatclip2win_watch=running pid=%s\n' "$pid"
+  else
+    printf 'wechatclip2win_watch=stopped\n'
+  fi
+  printf 'log=%s\n' "$log_file"
+}
+
+watch_loop() {
+  local old_pid last_hash="" tmp_file current_hash
+  old_pid="$(cat "$pid_file" 2>/dev/null || true)"
+  if is_running_pid "$old_pid"; then
+    printf 'wechatclip2win_watch=already-running pid=%s\n' "$old_pid"
+    return 0
+  fi
+
+  printf '%s\n' "$$" >"$pid_file"
+  trap 'rm -f "$pid_file"' EXIT
+  log "watch-started pid=$$ display=$display interval=$interval"
+
+  while true; do
+    tmp_file="$(mktemp "$state_dir/wechatclip2win-watch.XXXXXX")"
+    if read_linux_clipboard >"$tmp_file" 2>/dev/null && [ -s "$tmp_file" ]; then
+      current_hash="$(text_hash "$tmp_file")"
+      if [ "$current_hash" != "$last_hash" ]; then
+        mv -f "$tmp_file" "$last_text_file"
+        copy_file_to_windows_clipboard "$last_text_file" || true
+        last_hash="$current_hash"
+        log "watch-synced display=$display bytes=$(wc -c <"$last_text_file" | tr -d '[:space:]') sha256=$current_hash"
+      else
+        rm -f "$tmp_file"
+      fi
+    else
+      rm -f "$tmp_file"
+    fi
+    sleep "$interval"
+  done
+}
+
+mode="once"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --probe) mode="probe" ;;
+    --watch) mode="watch" ;;
+    --stop) mode="stop" ;;
+    --status) mode="status" ;;
+    --interval)
+      shift
+      interval="${1:-}"
+      if [ -z "$interval" ]; then
+        usage >&2
+        exit 64
+      fi
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 64
+      ;;
+  esac
+  shift
+done
+
+case "$mode" in
+  probe) probe_clipboard ;;
+  once) sync_once ;;
+  watch) watch_loop ;;
+  stop) stop_watcher ;;
+  status) status ;;
+esac

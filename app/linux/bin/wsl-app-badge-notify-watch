@@ -1,0 +1,652 @@
+#!/usr/bin/env python3
+import argparse
+import dataclasses
+import hashlib
+import json
+import os
+import pathlib
+import struct
+import subprocess
+import sys
+import time
+import zlib
+from datetime import datetime
+from typing import Iterable
+
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+STATE_DIR = os.environ.get("APP_NOTICE_STATE_DIR") or os.path.expanduser("~/.cache/wechat-desktop")
+LOG_FILE = os.path.join(STATE_DIR, "badge-notify-watch.log")
+PID_FILE = os.path.join(STATE_DIR, "badge-notify-watch.pid")
+DEFAULT_DISPLAY = ":20"
+DEFAULT_POLL_SECONDS = 3.0
+DEFAULT_DEBOUNCE_SECONDS = 18.0
+
+
+@dataclasses.dataclass(frozen=True)
+class ImageRGBA:
+    width: int
+    height: int
+    pixels: list[tuple[int, int, int, int]]
+
+    def pixel(self, x: int, y: int) -> tuple[int, int, int, int]:
+        return self.pixels[y * self.width + x]
+
+
+@dataclasses.dataclass(frozen=True)
+class RedComponent:
+    x0: int
+    y0: int
+    x1: int
+    y1: int
+    red_pixels: int
+    white_pixels: int
+    mask_hash: str
+
+    @property
+    def width(self) -> int:
+        return self.x1 - self.x0 + 1
+
+    @property
+    def height(self) -> int:
+        return self.y1 - self.y0 + 1
+
+    @property
+    def center(self) -> tuple[int, int]:
+        return ((self.x0 + self.x1) // 2, (self.y0 + self.y1) // 2)
+
+    def signature_part(self) -> str:
+        cx, cy = self.center
+        return f"{cx}:{cy}:{self.width}x{self.height}:{self.red_pixels}:{self.white_pixels}:{self.mask_hash[:12]}"
+
+
+@dataclasses.dataclass(frozen=True)
+class BadgeAnalysis:
+    numeric_badges: list[RedComponent]
+    plain_dots: list[RedComponent]
+
+    @property
+    def should_notify(self) -> bool:
+        return bool(self.numeric_badges)
+
+    def signature(self) -> str:
+        if not self.numeric_badges:
+            return ""
+        parts = [component.signature_part() for component in self.numeric_badges]
+        return "|".join(sorted(parts))
+
+
+def log(message: str) -> None:
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(LOG_FILE, "a", encoding="utf-8") as fh:
+            fh.write(f"{datetime.now().astimezone().isoformat()} {message}\n")
+    except Exception:
+        pass
+
+
+def windows_launcher_file(filename: str) -> str:
+    try:
+        output = subprocess.check_output(
+            ["cmd.exe", "/C", "echo", "%LOCALAPPDATA%"],
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        )
+        local_app_data = output.decode("utf-8", errors="ignore").strip()
+        if local_app_data and "%" not in local_app_data:
+            path = subprocess.check_output(
+                ["wslpath", "-u", local_app_data + "\\WslPrivate\\launchers\\" + filename],
+                stderr=subprocess.DEVNULL,
+                timeout=3,
+            ).decode("utf-8", errors="ignore").strip()
+            return path
+    except Exception:
+        pass
+    return ""
+
+
+def paeth_predictor(left: int, above: int, upper_left: int) -> int:
+    p = left + above - upper_left
+    pa = abs(p - left)
+    pb = abs(p - above)
+    pc = abs(p - upper_left)
+    if pa <= pb and pa <= pc:
+        return left
+    if pb <= pc:
+        return above
+    return upper_left
+
+
+def unfilter_png_scanlines(raw: bytes, width: int, height: int, bytes_per_pixel: int) -> bytes:
+    stride = width * bytes_per_pixel
+    rows: list[bytes] = []
+    offset = 0
+    previous = bytearray(stride)
+
+    for _ in range(height):
+        if offset >= len(raw):
+            raise ValueError("PNG data ended before all scanlines were decoded")
+
+        filter_type = raw[offset]
+        offset += 1
+        row = bytearray(raw[offset : offset + stride])
+        offset += stride
+
+        if len(row) != stride:
+            raise ValueError("PNG scanline is shorter than expected")
+
+        for i in range(stride):
+            left = row[i - bytes_per_pixel] if i >= bytes_per_pixel else 0
+            above = previous[i]
+            upper_left = previous[i - bytes_per_pixel] if i >= bytes_per_pixel else 0
+
+            if filter_type == 0:
+                value = row[i]
+            elif filter_type == 1:
+                value = (row[i] + left) & 0xFF
+            elif filter_type == 2:
+                value = (row[i] + above) & 0xFF
+            elif filter_type == 3:
+                value = (row[i] + ((left + above) // 2)) & 0xFF
+            elif filter_type == 4:
+                value = (row[i] + paeth_predictor(left, above, upper_left)) & 0xFF
+            else:
+                raise ValueError(f"Unsupported PNG filter type: {filter_type}")
+
+            row[i] = value
+
+        rows.append(bytes(row))
+        previous = row
+
+    return b"".join(rows)
+
+
+def read_png_rgba(path: str | os.PathLike[str]) -> ImageRGBA:
+    data = pathlib.Path(path).read_bytes()
+    if not data.startswith(PNG_SIGNATURE):
+        raise ValueError("Not a PNG file")
+
+    offset = len(PNG_SIGNATURE)
+    width = height = bit_depth = color_type = None
+    palette: list[tuple[int, int, int]] = []
+    transparency: bytes = b""
+    idat = bytearray()
+
+    while offset + 8 <= len(data):
+        length = struct.unpack(">I", data[offset : offset + 4])[0]
+        chunk_type = data[offset + 4 : offset + 8]
+        chunk_data = data[offset + 8 : offset + 8 + length]
+        offset += 12 + length
+
+        if chunk_type == b"IHDR":
+            width, height, bit_depth, color_type, compression, filter_method, interlace = struct.unpack(
+                ">IIBBBBB", chunk_data
+            )
+            if bit_depth != 8:
+                raise ValueError(f"Unsupported PNG bit depth: {bit_depth}")
+            if compression != 0 or filter_method != 0 or interlace != 0:
+                raise ValueError("Unsupported PNG compression, filter, or interlace method")
+        elif chunk_type == b"PLTE":
+            palette = [
+                tuple(chunk_data[i : i + 3])  # type: ignore[arg-type]
+                for i in range(0, len(chunk_data), 3)
+                if i + 3 <= len(chunk_data)
+            ]
+        elif chunk_type == b"tRNS":
+            transparency = bytes(chunk_data)
+        elif chunk_type == b"IDAT":
+            idat.extend(chunk_data)
+        elif chunk_type == b"IEND":
+            break
+
+    if width is None or height is None or bit_depth is None or color_type is None:
+        raise ValueError("PNG is missing IHDR")
+
+    channel_counts = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
+    if color_type not in channel_counts:
+        raise ValueError(f"Unsupported PNG color type: {color_type}")
+
+    bytes_per_pixel = channel_counts[color_type]
+    decoded = unfilter_png_scanlines(zlib.decompress(bytes(idat)), width, height, bytes_per_pixel)
+    pixels: list[tuple[int, int, int, int]] = []
+
+    for i in range(0, len(decoded), bytes_per_pixel):
+        if color_type == 0:
+            value = decoded[i]
+            pixels.append((value, value, value, 255))
+        elif color_type == 2:
+            pixels.append((decoded[i], decoded[i + 1], decoded[i + 2], 255))
+        elif color_type == 3:
+            index = decoded[i]
+            r, g, b = palette[index]
+            a = transparency[index] if index < len(transparency) else 255
+            pixels.append((r, g, b, a))
+        elif color_type == 4:
+            value = decoded[i]
+            pixels.append((value, value, value, decoded[i + 1]))
+        elif color_type == 6:
+            pixels.append((decoded[i], decoded[i + 1], decoded[i + 2], decoded[i + 3]))
+
+    return ImageRGBA(width, height, pixels)
+
+
+def choose_xwd_endian(header: bytes) -> str:
+    for endian in (">", "<"):
+        values = struct.unpack(endian + "25I", header[:100])
+        header_size, file_version, pixmap_format, _, width, height = values[:6]
+        if file_version == 7 and pixmap_format == 2 and 0 < width < 10000 and 0 < height < 10000:
+            if 100 <= header_size < 100000:
+                return endian
+    raise ValueError("Unsupported XWD header")
+
+
+def mask_shift_and_bits(mask: int) -> tuple[int, int]:
+    if mask == 0:
+        return 0, 0
+    shift = 0
+    while ((mask >> shift) & 1) == 0:
+        shift += 1
+    bits = 0
+    while ((mask >> (shift + bits)) & 1) == 1:
+        bits += 1
+    return shift, bits
+
+
+def scale_channel(value: int, bits: int) -> int:
+    if bits <= 0:
+        return 0
+    max_value = (1 << bits) - 1
+    return int(round((value * 255) / max_value))
+
+
+def read_xwd_rgba(data: bytes, crop_width: int | None = None) -> ImageRGBA:
+    endian = choose_xwd_endian(data[:100])
+    values = struct.unpack(endian + "25I", data[:100])
+    (
+        header_size,
+        _file_version,
+        _pixmap_format,
+        _pixmap_depth,
+        width,
+        height,
+        _xoffset,
+        byte_order,
+        _bitmap_unit,
+        _bitmap_bit_order,
+        _bitmap_pad,
+        bits_per_pixel,
+        bytes_per_line,
+        _visual_class,
+        red_mask,
+        green_mask,
+        blue_mask,
+        _bits_per_rgb,
+        _colormap_entries,
+        ncolors,
+        _window_width,
+        _window_height,
+        _window_x,
+        _window_y,
+        _window_bdrwidth,
+    ) = values
+
+    if bits_per_pixel not in (16, 24, 32):
+        raise ValueError(f"Unsupported XWD bits_per_pixel: {bits_per_pixel}")
+
+    pixel_bytes = bits_per_pixel // 8
+    pixel_endian = "<" if byte_order == 0 else ">"
+    color_table_bytes = ncolors * 12
+    offset = header_size + color_table_bytes
+
+    r_shift, r_bits = mask_shift_and_bits(red_mask)
+    g_shift, g_bits = mask_shift_and_bits(green_mask)
+    b_shift, b_bits = mask_shift_and_bits(blue_mask)
+
+    target_width = width if crop_width is None else min(width, max(1, crop_width))
+    pixels: list[tuple[int, int, int, int]] = []
+    for y in range(height):
+        row_offset = offset + y * bytes_per_line
+        for x in range(target_width):
+            start = row_offset + x * pixel_bytes
+            raw = data[start : start + pixel_bytes]
+            if len(raw) != pixel_bytes:
+                raise ValueError("XWD pixel data ended early")
+
+            value = int.from_bytes(raw, byteorder="little" if pixel_endian == "<" else "big")
+            r = scale_channel((value & red_mask) >> r_shift, r_bits)
+            g = scale_channel((value & green_mask) >> g_shift, g_bits)
+            b = scale_channel((value & blue_mask) >> b_shift, b_bits)
+            pixels.append((r, g, b, 255))
+
+    return ImageRGBA(target_width, height, pixels)
+
+
+def is_badge_red(pixel: tuple[int, int, int, int]) -> bool:
+    r, g, b, a = pixel
+    return a >= 180 and r >= 220 and 35 <= g <= 125 and 35 <= b <= 125 and r - g >= 100 and r - b >= 100
+
+
+def is_digit_white(pixel: tuple[int, int, int, int]) -> bool:
+    r, g, b, a = pixel
+    return a >= 180 and r >= 235 and g >= 235 and b >= 235
+
+
+def component_hash(points: Iterable[tuple[int, int]], component: RedComponent | None = None) -> str:
+    h = hashlib.sha256()
+    for x, y in sorted(points):
+        if component is None:
+            h.update(f"{x},{y};".encode("ascii"))
+        else:
+            h.update(f"{x - component.x0},{y - component.y0};".encode("ascii"))
+    return h.hexdigest()
+
+
+def find_red_components(image: ImageRGBA, scan_x_max: int | None = None) -> tuple[list[RedComponent], list[RedComponent]]:
+    width, height = image.width, image.height
+    max_x = width if scan_x_max is None else min(width, max(0, scan_x_max))
+    red = [False] * (width * height)
+
+    for y in range(height):
+        for x in range(max_x):
+            red[y * width + x] = is_badge_red(image.pixel(x, y))
+
+    visited = [False] * (width * height)
+    numeric_badges: list[RedComponent] = []
+    plain_dots: list[RedComponent] = []
+
+    for y in range(height):
+        for x in range(max_x):
+            idx = y * width + x
+            if not red[idx] or visited[idx]:
+                continue
+
+            stack = [(x, y)]
+            visited[idx] = True
+            points: list[tuple[int, int]] = []
+            x0 = x1 = x
+            y0 = y1 = y
+
+            while stack:
+                px, py = stack.pop()
+                points.append((px, py))
+                x0 = min(x0, px)
+                x1 = max(x1, px)
+                y0 = min(y0, py)
+                y1 = max(y1, py)
+
+                for nx, ny in ((px - 1, py), (px + 1, py), (px, py - 1), (px, py + 1)):
+                    if nx < 0 or ny < 0 or nx >= max_x or ny >= height:
+                        continue
+                    nidx = ny * width + nx
+                    if red[nidx] and not visited[nidx]:
+                        visited[nidx] = True
+                        stack.append((nx, ny))
+
+            box_width = x1 - x0 + 1
+            box_height = y1 - y0 + 1
+            if box_width < 5 or box_height < 5 or box_width > 32 or box_height > 32:
+                continue
+
+            white_pixels = 0
+            for by in range(max(0, y0 - 1), min(height, y1 + 2)):
+                for bx in range(max(0, x0 - 1), min(max_x, x1 + 2)):
+                    if is_digit_white(image.pixel(bx, by)):
+                        white_pixels += 1
+
+            temp = RedComponent(x0, y0, x1, y1, len(points), white_pixels, "")
+            component = dataclasses.replace(temp, mask_hash=component_hash(points, temp))
+
+            if 12 <= box_width <= 26 and 12 <= box_height <= 26 and len(points) >= 80:
+                numeric_badges.append(component)
+            elif 5 <= box_width <= 15 and 5 <= box_height <= 15:
+                plain_dots.append(component)
+
+    return numeric_badges, plain_dots
+
+
+def analyze_unread_badges(image: ImageRGBA) -> BadgeAnalysis:
+    scan_x_max = min(image.width, 110)
+    numeric_badges, plain_dots = find_red_components(image, scan_x_max=scan_x_max)
+    return BadgeAnalysis(numeric_badges=numeric_badges, plain_dots=plain_dots)
+
+
+def read_focus_state_is_active() -> bool:
+    candidates = []
+    env_path = os.environ.get("WSL_FOCUS_STATE_FILE")
+    if env_path:
+        candidates.append(env_path)
+    launcher_state = windows_launcher_file("focus-watch.state")
+    if launcher_state:
+        candidates.append(launcher_state)
+
+    for path in candidates:
+        try:
+            fields = {}
+            with open(path, "r", encoding="utf-8-sig") as fh:
+                for line in fh:
+                    if "=" not in line:
+                        continue
+                    key, value = line.rstrip("\n").split("=", 1)
+                    fields[key] = value
+
+            if fields.get("state", "").lower() != "active":
+                return False
+
+            timestamp = fields.get("timestamp", "")
+            stamp = parse_focus_timestamp(timestamp)
+            return (datetime.now().astimezone() - stamp).total_seconds() <= 10
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            log(f"focus-state-error={exc}")
+            return False
+    return False
+
+
+def parse_focus_timestamp(value: str) -> datetime:
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+
+    if "." in normalized:
+        dot = normalized.find(".")
+        end = dot + 1
+        while end < len(normalized) and normalized[end].isdigit():
+            end += 1
+        fraction_len = end - dot - 1
+        if fraction_len > 6:
+            normalized = normalized[: dot + 7] + normalized[end:]
+
+    return datetime.fromisoformat(normalized)
+
+
+def run_command(args: list[str], timeout: float = 5.0) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, check=False)
+
+
+def discover_wechat_window(display: str) -> str:
+    env = os.environ.copy()
+    env["DISPLAY"] = display
+    result = subprocess.run(
+        ["xdotool", "search", "--class", "^wechat$"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        env=env,
+        check=False,
+        timeout=5,
+    )
+    ids = [line.strip() for line in result.stdout.decode("utf-8", errors="ignore").splitlines() if line.strip()]
+    best_id = ""
+    best_area = 0
+
+    for window_id in ids:
+        geometry = subprocess.run(
+            ["xdotool", "getwindowgeometry", "--shell", window_id],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=env,
+            check=False,
+            timeout=5,
+        )
+        fields = {}
+        for line in geometry.stdout.decode("utf-8", errors="ignore").splitlines():
+            if "=" in line:
+                key, value = line.split("=", 1)
+                fields[key] = value
+        try:
+            area = int(fields.get("WIDTH", "0")) * int(fields.get("HEIGHT", "0"))
+        except ValueError:
+            area = 0
+        if area > best_area:
+            best_area = area
+            best_id = window_id
+
+    if not best_id:
+        raise RuntimeError("No WeChat X11 window found")
+    return best_id
+
+
+def capture_wechat_image(display: str) -> ImageRGBA:
+    window_id = discover_wechat_window(display)
+    env = os.environ.copy()
+    env["DISPLAY"] = display
+    result = subprocess.run(
+        ["xwd", "-silent", "-id", window_id],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        check=False,
+        timeout=8,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="ignore").strip()
+        raise RuntimeError(f"xwd failed: {stderr or result.returncode}")
+    return read_xwd_rgba(result.stdout, crop_width=110)
+
+
+def send_windows_notice() -> None:
+    subprocess.Popen(
+        ["wsl-app-notify-bridge", "--test"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
+def is_pid_running(pid: str) -> bool:
+    return bool(pid) and os.path.exists(f"/proc/{pid}")
+
+
+def status() -> int:
+    pid = ""
+    try:
+        with open(PID_FILE, "r", encoding="utf-8") as fh:
+            pid = fh.read().strip()
+    except FileNotFoundError:
+        pass
+    if is_pid_running(pid):
+        print(f"badge_watch=running pid={pid}")
+    else:
+        print("badge_watch=stopped")
+    print(f"log={LOG_FILE}")
+    return 0
+
+
+def write_pid() -> None:
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(PID_FILE, "w", encoding="utf-8") as fh:
+        fh.write(str(os.getpid()))
+
+
+def daemon(display: str, poll_seconds: float, debounce_seconds: float) -> int:
+    write_pid()
+    log(f"started pid={os.getpid()} display={display} poll={poll_seconds:g}s")
+    baseline: str | None = None
+    last_notice_at = 0.0
+
+    try:
+        while True:
+            try:
+                image = capture_wechat_image(display)
+                analysis = analyze_unread_badges(image)
+                signature = analysis.signature()
+                foreground_active = read_focus_state_is_active()
+
+                if baseline is None:
+                    baseline = signature
+                    log(
+                        "baseline "
+                        f"numeric={len(analysis.numeric_badges)} plain={len(analysis.plain_dots)} "
+                        f"signature={signature or 'empty'}"
+                    )
+                elif foreground_active:
+                    if signature != baseline:
+                        log(
+                            "baseline-update-foreground "
+                            f"numeric={len(analysis.numeric_badges)} plain={len(analysis.plain_dots)}"
+                        )
+                    baseline = signature
+                elif signature and signature != baseline:
+                    now = time.monotonic()
+                    if now - last_notice_at >= debounce_seconds:
+                        last_notice_at = now
+                        log(
+                            "notify reason=numeric-badge "
+                            f"numeric={len(analysis.numeric_badges)} plain={len(analysis.plain_dots)} "
+                            f"signature={signature}"
+                        )
+                        send_windows_notice()
+                    baseline = signature
+                elif not signature:
+                    baseline = signature
+            except Exception as exc:
+                log(f"poll-error={exc}")
+            time.sleep(poll_seconds)
+    finally:
+        try:
+            os.remove(PID_FILE)
+        except FileNotFoundError:
+            pass
+    return 0
+
+
+def analysis_to_dict(analysis: BadgeAnalysis) -> dict[str, object]:
+    return {
+        "numeric_badges": [dataclasses.asdict(component) for component in analysis.numeric_badges],
+        "plain_dots": [dataclasses.asdict(component) for component in analysis.plain_dots],
+        "should_notify": analysis.should_notify,
+        "signature": analysis.signature(),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Watch WeChat Desktop for numeric unread badges.")
+    parser.add_argument("--display", default=os.environ.get("WECHAT_DESKTOP_DISPLAY", DEFAULT_DISPLAY))
+    parser.add_argument("--poll-seconds", type=float, default=DEFAULT_POLL_SECONDS)
+    parser.add_argument("--debounce-seconds", type=float, default=DEFAULT_DEBOUNCE_SECONDS)
+    parser.add_argument("--status", action="store_true")
+    parser.add_argument("--once", action="store_true")
+    parser.add_argument("--test-image")
+    args = parser.parse_args(argv)
+
+    if args.status:
+        return status()
+
+    if args.test_image:
+        image = read_png_rgba(args.test_image)
+        analysis = analyze_unread_badges(image)
+        print(json.dumps(analysis_to_dict(analysis), ensure_ascii=False, indent=2))
+        return 0 if analysis.should_notify else 1
+
+    if args.once:
+        image = capture_wechat_image(args.display)
+        analysis = analyze_unread_badges(image)
+        print(json.dumps(analysis_to_dict(analysis), ensure_ascii=False, indent=2))
+        return 0 if analysis.should_notify else 1
+
+    return daemon(args.display, args.poll_seconds, args.debounce_seconds)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

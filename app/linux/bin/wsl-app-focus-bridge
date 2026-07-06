@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${APP_NOTICE_STATE_DIR:-$HOME/.cache/wechat-desktop}"
+mkdir -p "$state_dir"
+
+display="${WECHAT_DESKTOP_DISPLAY:-}"
+if [ -z "$display" ]; then
+  display="$(cat "$state_dir/display" 2>/dev/null || true)"
+fi
+if [ -z "$display" ]; then
+  display=":20"
+fi
+
+export DISPLAY="$display"
+unset WAYLAND_DISPLAY
+
+log_file="$state_dir/focus-bridge.log"
+sink_pid_file="$state_dir/focus-sink.pid"
+
+log() {
+  printf '%s %s\n' "$(date -Is)" "$*" >>"$log_file"
+}
+
+is_running_pid() {
+  local pid="${1:-}"
+  [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1
+}
+
+sink_window_id() {
+  wmctrl -lpx 2>/dev/null | awk '$4 ~ /wsl-focus-sink|Xmessage/ && $0 ~ /wsl-focus-sink/ { print $1; exit }'
+}
+
+wechat_window_id() {
+  wmctrl -lpx 2>/dev/null | awk '$4 == "wechat.wechat" { print $1; exit }'
+}
+
+ensure_sink() {
+  local pid id
+
+  id="$(sink_window_id)"
+  if [ -n "$id" ]; then
+    printf '%s\n' "$id"
+    return 0
+  fi
+
+  pid="$(cat "$sink_pid_file" 2>/dev/null || true)"
+  if ! is_running_pid "$pid"; then
+    nohup wsl-focus-sink >"$state_dir/focus-sink.log" 2>&1 &
+    printf '%s\n' "$!" >"$sink_pid_file"
+    log "sink-started pid=$!"
+  fi
+
+  for _ in $(seq 1 30); do
+    id="$(sink_window_id)"
+    if [ -n "$id" ]; then
+      wmctrl -i -r "$id" -b add,skip_taskbar,skip_pager,below 2>/dev/null || true
+      wmctrl -i -r "$id" -e 0,0,0,1,1 2>/dev/null || true
+      printf '%s\n' "$id"
+      return 0
+    fi
+    sleep 0.1
+  done
+
+  return 1
+}
+
+focus_sink() {
+  local id
+  id="$(ensure_sink)" || {
+    log "sink-focus-failed=no-window"
+    return 1
+  }
+
+  xdotool windowfocus "$id" >/dev/null 2>&1 || true
+  log "external=inactive focused=sink id=$id"
+}
+
+focus_wechat() {
+  local id
+  id="$(wechat_window_id)"
+  if [ -n "$id" ]; then
+    xdotool windowfocus "$id" >/dev/null 2>&1 || true
+    log "external=active focused=wechat id=$id"
+  else
+    log "external=active wechat-window=missing"
+  fi
+}
+
+status() {
+  local active active_name sink_id wechat_id
+  active="$(xdotool getactivewindow 2>/dev/null || true)"
+  active_name=""
+  if [ -n "$active" ]; then
+    active_name="$(xdotool getwindowname "$active" 2>/dev/null || true)"
+  fi
+  sink_id="$(sink_window_id)"
+  wechat_id="$(wechat_window_id)"
+
+  printf 'display=%s\n' "$display"
+  printf 'focus_sink=%s\n' "${sink_id:-none}"
+  printf 'wechat_window=%s\n' "${wechat_id:-none}"
+  printf 'active_window=%s\n' "${active:-none}"
+  printf 'active_name=%s\n' "${active_name:-}"
+
+  printf 'focus_watch_status=check_windows_focus-watch.ps1\n'
+}
+
+case "${1:-}" in
+  --wechat-inactive)
+    focus_sink
+    ;;
+  --wechat-active)
+    focus_wechat
+    ;;
+  --ensure-sink)
+    ensure_sink >/dev/null
+    ;;
+  --status)
+    status
+    ;;
+  *)
+    printf 'Usage: wsl-app-focus-bridge [--wechat-active|--wechat-inactive|--ensure-sink|--status]\n' >&2
+    exit 64
+    ;;
+esac

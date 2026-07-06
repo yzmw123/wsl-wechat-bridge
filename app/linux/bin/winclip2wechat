@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: winclip2wechat [--paste]
+
+Copies Windows clipboard text, screenshots/images, or copied files into the
+Linux clipboard, so WSLg/X11 apps such as WeChat can paste them with Ctrl+V.
+
+Options:
+  --paste    After setting the Linux clipboard, send Ctrl+V to the active X11 window.
+EOF
+}
+
+send_paste=0
+case "${1:-}" in
+  --paste) send_paste=1 ;;
+  -h|--help) usage; exit 0 ;;
+  "") ;;
+  *) usage >&2; exit 64 ;;
+esac
+
+out_dir="$HOME/Pictures/WindowsClipboard"
+mkdir -p "$out_dir"
+out_file="$out_dir/clip-$(date +%Y%m%d-%H%M%S).png"
+text_file="$out_dir/last-windows-text.txt"
+win_out_file="$(wslpath -w "$out_file")"
+win_text_file="$(wslpath -w "$text_file")"
+
+ps_code='
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+$path = $args[0]
+$textPath = $args[1]
+$dir = Split-Path -Parent $path
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+if ([System.Windows.Forms.Clipboard]::ContainsImage()) {
+    $img = [System.Windows.Forms.Clipboard]::GetImage()
+    $img.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
+    Write-Output "image"
+    exit 0
+}
+
+if ([System.Windows.Forms.Clipboard]::ContainsFileDropList()) {
+    Write-Output "files"
+    foreach ($file in [System.Windows.Forms.Clipboard]::GetFileDropList()) {
+        Write-Output $file
+    }
+    exit 10
+}
+
+if ([System.Windows.Forms.Clipboard]::ContainsText()) {
+    $text = [System.Windows.Forms.Clipboard]::GetText([System.Windows.Forms.TextDataFormat]::UnicodeText)
+    if ($null -eq $text) {
+        $text = ""
+    }
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($textPath, $text, $utf8NoBom)
+    Write-Output "text"
+    exit 20
+}
+
+Write-Output "empty"
+exit 2
+'
+
+set +e
+ps_file="$out_dir/read-winclip-image.ps1"
+printf '%s\n' "$ps_code" >"$ps_file"
+ps_output="$(
+  powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "$(wslpath -w "$ps_file")" "$win_out_file" "$win_text_file" 2>&1
+)"
+ps_status=$?
+set -e
+
+first_line="$(printf '%s\n' "$ps_output" | sed -n '1p' | tr -d '\r')"
+
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp}/winclip2wechat"
+mkdir -p "$runtime_dir"
+
+target_displays=()
+if [ -n "${DISPLAY:-}" ]; then
+  target_displays+=("$DISPLAY")
+fi
+if [ -s "$HOME/.cache/wechat-desktop/display" ]; then
+  nested_display="$(cat "$HOME/.cache/wechat-desktop/display" 2>/dev/null || true)"
+  if [ -n "$nested_display" ]; then
+    target_displays+=("$nested_display")
+  fi
+fi
+
+unique_displays=()
+for display_name in "${target_displays[@]}"; do
+  already=0
+  for existing in "${unique_displays[@]}"; do
+    if [ "$existing" = "$display_name" ]; then
+      already=1
+      break
+    fi
+  done
+  [ "$already" -eq 0 ] && unique_displays+=("$display_name")
+done
+
+send_ctrl_v() {
+  local paste_display=""
+  if [ -s "$HOME/.cache/wechat-desktop/display" ]; then
+    paste_display="$(cat "$HOME/.cache/wechat-desktop/display" 2>/dev/null || true)"
+  fi
+  if [ -z "$paste_display" ] && [ -n "${DISPLAY:-}" ]; then
+    paste_display="$DISPLAY"
+  fi
+  if [ -n "$paste_display" ]; then
+    env DISPLAY="$paste_display" xdotool key ctrl+v >/dev/null 2>&1 || true
+  else
+    xdotool key ctrl+v >/dev/null 2>&1 || true
+  fi
+}
+
+kill_old_owner() {
+  local pid_file="$1"
+  if [ -f "$pid_file" ]; then
+    local old_pid
+    old_pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [ -n "$old_pid" ]; then
+      kill "$old_pid" 2>/dev/null || true
+    fi
+  fi
+}
+
+if [ "$ps_status" -eq 10 ] || [ "$first_line" = "files" ]; then
+  win_files="$out_dir/last-windows-files.txt"
+  uri_file="$out_dir/last-windows-files.uri-list"
+  printf '%s\n' "$ps_output" | sed '1d;s/\r$//' >"$win_files"
+  : >"$uri_file"
+
+  while IFS= read -r win_file; do
+    [ -n "$win_file" ] || continue
+    linux_file="$(wslpath -u "$win_file" 2>/dev/null || true)"
+    [ -n "$linux_file" ] || continue
+    python3 - "$linux_file" >>"$uri_file" <<'PY'
+import pathlib
+import sys
+
+print(pathlib.Path(sys.argv[1]).absolute().as_uri())
+PY
+  done <"$win_files"
+
+  if [ ! -s "$uri_file" ]; then
+    echo "Windows clipboard contains file(s), but they could not be mapped into WSL:"
+    cat "$win_files"
+    exit 10
+  fi
+
+  if command -v xclip >/dev/null 2>&1; then
+    for display_name in "${unique_displays[@]}"; do
+      display_safe="$(printf '%s' "$display_name" | tr -c '[:alnum:]' '_')"
+      xclip_pid_file="$runtime_dir/xclip-files-${display_safe}.pid"
+      kill_old_owner "$xclip_pid_file"
+      nohup env DISPLAY="$display_name" xclip -selection clipboard -t text/uri-list -i "$uri_file" \
+        >"$runtime_dir/xclip-files-${display_safe}.log" 2>&1 &
+      echo $! >"$xclip_pid_file"
+    done
+  fi
+
+  if command -v wl-copy >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    wl-copy --type text/uri-list <"$uri_file" 2>"$runtime_dir/wl-copy-files.log" || true
+  fi
+
+  echo "Linux clipboard now contains file URI(s):"
+  cat "$uri_file"
+
+  if [ "$send_paste" -eq 1 ]; then
+    sleep 0.2
+    send_ctrl_v
+  fi
+  exit 0
+fi
+
+if [ "$ps_status" -eq 20 ] || [ "$first_line" = "text" ]; then
+  if [ ! -s "$text_file" ]; then
+    echo "Windows clipboard text is empty."
+    exit 2
+  fi
+
+  if command -v xclip >/dev/null 2>&1; then
+    for display_name in "${unique_displays[@]}"; do
+      display_safe="$(printf '%s' "$display_name" | tr -c '[:alnum:]' '_')"
+      xclip_pid_file="$runtime_dir/xclip-text-${display_safe}.pid"
+      kill_old_owner "$xclip_pid_file"
+      nohup env DISPLAY="$display_name" xclip -selection clipboard -i "$text_file" \
+        >"$runtime_dir/xclip-text-${display_safe}.log" 2>&1 &
+      echo $! >"$xclip_pid_file"
+    done
+  fi
+
+  if command -v wl-copy >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+    wl-copy --type text/plain <"$text_file" 2>"$runtime_dir/wl-copy-text.log" || true
+  fi
+
+  text_bytes="$(wc -c <"$text_file" | tr -d ' ')"
+  text_chars="$(python3 - "$text_file" <<'PY'
+import pathlib
+import sys
+
+print(len(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")))
+PY
+)"
+  echo "Linux clipboard now contains text: bytes=${text_bytes} chars=${text_chars}"
+
+  if [ "$send_paste" -eq 1 ]; then
+    sleep 0.2
+    send_ctrl_v
+  fi
+  exit 0
+fi
+
+if [ "$ps_status" -ne 0 ] || [ "$first_line" != "image" ] || [ ! -s "$out_file" ]; then
+  echo "No Windows clipboard text, image, or file list was found."
+  echo "PowerShell clipboard result: $first_line"
+  exit 2
+fi
+
+if command -v xclip >/dev/null 2>&1; then
+  for display_name in "${unique_displays[@]}"; do
+    display_safe="$(printf '%s' "$display_name" | tr -c '[:alnum:]' '_')"
+    xclip_pid_file="$runtime_dir/xclip-image-${display_safe}.pid"
+    kill_old_owner "$xclip_pid_file"
+    nohup env DISPLAY="$display_name" xclip -selection clipboard -t image/png -i "$out_file" \
+      >"$runtime_dir/xclip-image-${display_safe}.log" 2>&1 &
+    echo $! >"$xclip_pid_file"
+  done
+fi
+
+if command -v wl-copy >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+  wl-copy --type image/png <"$out_file" 2>"$runtime_dir/wl-copy.log" || true
+fi
+
+echo "Linux clipboard now contains image/png:"
+echo "$out_file"
+
+find "$out_dir" -maxdepth 1 -type f -name 'clip-*.png' -printf '%T@ %p\n' \
+  | sort -rn \
+  | awk 'NR > 50 { sub(/^[^ ]+ /, ""); print }' \
+  | while IFS= read -r old_file; do
+      rm -f -- "$old_file"
+    done
+
+if [ "$send_paste" -eq 1 ]; then
+  sleep 0.2
+  send_ctrl_v
+fi

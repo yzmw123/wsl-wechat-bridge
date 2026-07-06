@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${APP_NOTICE_STATE_DIR:-$HOME/.cache/wechat-desktop}"
+mkdir -p "$state_dir"
+
+display="${WECHAT_DESKTOP_DISPLAY:-}"
+if [ -z "$display" ]; then
+  display="$(cat "$state_dir/display" 2>/dev/null || true)"
+fi
+if [ -z "$display" ]; then
+  display=":20"
+fi
+
+export DISPLAY="$display"
+unset WAYLAND_DISPLAY
+
+pid_file="$state_dir/notice-bridge.pid"
+log_file="$state_dir/notice-bridge.log"
+seen_file="$state_dir/notice-bridge.seen"
+notification_pid_file="$state_dir/notification-daemon.pid"
+
+log() {
+  printf '%s %s\n' "$(date -Is)" "$*" >>"$log_file"
+}
+
+windows_helper_path() {
+  local localapp candidate
+
+  localapp="$(cmd.exe /C echo %LOCALAPPDATA% 2>/dev/null | tr -d '\r' || true)"
+  if [ -n "$localapp" ] && [[ "$localapp" != *%* ]]; then
+    candidate="$(wslpath -u "${localapp}\\WslPrivate\\launchers\\notice.ps1" 2>/dev/null || true)"
+    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  printf ''
+}
+
+send_windows_notice() {
+  local reason="$1"
+  local helper win_helper exit_code ps_launcher wslenv_value
+  helper="$(windows_helper_path)"
+
+  if [ ! -f "$helper" ]; then
+    log "notice helper not found: $helper"
+    return 0
+  fi
+
+  win_helper="$(wslpath -w "$helper")"
+  log "notify reason=$reason helper=$helper"
+
+  # Detach from the current WSL process. A plain backgrounded powershell.exe can
+  # be torn down when a short command such as `wsl ... --test` exits.
+  ps_launcher='$p = $env:WSL_NOTICE_HELPER; if ([string]::IsNullOrWhiteSpace($p)) { throw "WSL_NOTICE_HELPER is empty" }; $argList = @("-NoLogo","-NoProfile","-STA","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",$p); Start-Process -FilePath "powershell.exe" -WindowStyle Hidden -ArgumentList $argList'
+  if [ -n "${WSLENV:-}" ]; then
+    wslenv_value="${WSLENV}:WSL_NOTICE_HELPER"
+  else
+    wslenv_value="WSL_NOTICE_HELPER"
+  fi
+
+  WSL_NOTICE_HELPER="$win_helper" WSLENV="$wslenv_value" \
+    powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$ps_launcher" >/dev/null 2>&1
+  exit_code=$?
+  if [ "$exit_code" -eq 0 ]; then
+    log "launch=start-process"
+    return 0
+  fi
+
+  log "launch=start-process-failed exit=$exit_code"
+
+  if cmd.exe /C start "" powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "$win_helper" >/dev/null 2>&1; then
+    log "launch=cmd-start"
+    return 0
+  fi
+
+  exit_code=$?
+  log "launch=cmd-start-failed exit=$exit_code"
+  powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden \
+    -File "$win_helper" \
+    >/dev/null 2>&1 &
+  log "launch=powershell-background"
+}
+
+is_running_pid() {
+  local pid="${1:-}"
+  [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1
+}
+
+cleanup_stale_bridges() {
+  local self="$$"
+  local uid pid args
+  uid="$(id -u)"
+
+  while read -r pid; do
+    [ -n "$pid" ] || continue
+    [ "$pid" = "$self" ] && continue
+
+    args="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    [ -n "$args" ] || continue
+
+    case "$args" in
+      *"wsl-app-notify-bridge --status"*|*"wsl-app-notify-bridge --test"*|*"wsl-app-notify-bridge-restart"*)
+        continue
+        ;;
+    esac
+
+    kill "$pid" 2>/dev/null || true
+  done < <(pgrep -u "$uid" -f 'wsl-app-notify-bridge' 2>/dev/null || true)
+}
+
+wechat_dbus_address() {
+  local uid pid
+  uid="$(id -u)"
+  pid="$(pgrep -u "$uid" -x wechat 2>/dev/null | head -n1 || true)"
+  if [ -n "$pid" ] && [ -r "/proc/$pid/environ" ]; then
+    tr '\0' '\n' <"/proc/$pid/environ" |
+      awk -F= '$1 == "DBUS_SESSION_BUS_ADDRESS" { print substr($0, index($0, "=") + 1); exit }'
+    return 0
+  fi
+
+  printf '%s\n' "${DBUS_SESSION_BUS_ADDRESS:-}"
+}
+
+start_notification_daemon() {
+  local bus pid
+
+  if ! command -v wsl-app-notification-daemon >/dev/null 2>&1; then
+    log "notification daemon command not found"
+    return 0
+  fi
+
+  pid="$(cat "$notification_pid_file" 2>/dev/null || true)"
+  if is_running_pid "$pid"; then
+    return 0
+  fi
+
+  bus="$(wechat_dbus_address)"
+  if [ -z "$bus" ]; then
+    log "notification daemon skipped: no DBUS_SESSION_BUS_ADDRESS"
+    return 0
+  fi
+
+  DBUS_SESSION_BUS_ADDRESS="$bus" APP_NOTICE_STATE_DIR="$state_dir" \
+    nohup wsl-app-notification-daemon >>"$state_dir/notification-daemon-start.log" 2>&1 &
+  printf '%s\n' "$!" >"$notification_pid_file"
+  log "notification daemon started pid=$! bus=$bus"
+}
+
+case "${1:-}" in
+  --test)
+    send_windows_notice "manual-test"
+    exit 0
+    ;;
+  --status)
+    if is_running_pid "$(cat "$pid_file" 2>/dev/null || true)"; then
+      printf 'running pid=%s display=%s\n' "$(cat "$pid_file")" "$display"
+    else
+      printf 'stopped display=%s\n' "$display"
+    fi
+    if is_running_pid "$(cat "$notification_pid_file" 2>/dev/null || true)"; then
+      printf 'notification_daemon=running pid=%s\n' "$(cat "$notification_pid_file")"
+    else
+      printf 'notification_daemon=stopped\n'
+    fi
+    exit 0
+    ;;
+  ""|--daemon)
+    ;;
+  *)
+    printf 'Usage: wsl-app-notify-bridge [--daemon|--test|--status]\n' >&2
+    exit 64
+    ;;
+esac
+
+if is_running_pid "$(cat "$pid_file" 2>/dev/null || true)"; then
+  exit 0
+fi
+
+cleanup_stale_bridges
+
+printf '%s\n' "$$" >"$pid_file"
+trap 'rm -f "$pid_file"' EXIT
+
+touch "$seen_file"
+log "started display=$display pid=$$"
+start_notification_daemon
+
+last_notice_at=0
+last_notice_reason=""
+last_daemon_check_at=0
+
+maybe_notice() {
+  local reason="$1"
+  local now
+  now="$(date +%s)"
+
+  if [ "$reason" = "$last_notice_reason" ] && [ $((now - last_notice_at)) -lt 30 ]; then
+    return 0
+  fi
+  if [ $((now - last_notice_at)) -lt 8 ]; then
+    return 0
+  fi
+
+  last_notice_at="$now"
+  last_notice_reason="$reason"
+  send_windows_notice "$reason"
+}
+
+window_title() {
+  local id="$1"
+  xdotool getwindowname "$id" 2>/dev/null || true
+}
+
+window_has_attention() {
+  local id="$1"
+  xprop -id "$id" WM_HINTS _NET_WM_STATE 2>/dev/null |
+    grep -Eqi 'Urgency|DEMANDS_ATTENTION'
+}
+
+title_looks_unread() {
+  local title="$1"
+  printf '%s\n' "$title" |
+    grep -Eiq '(^|[^0-9])(\([0-9]+\)|\[[0-9]+\]|[0-9]+[[:space:]]*(条)?(未读|新消息)|未读|新消息)'
+}
+
+list_windows() {
+  wmctrl -lpx 2>/dev/null || true
+}
+
+mark_initial_windows_seen() {
+  : >"$seen_file"
+  list_windows | awk '{print $1}' >>"$seen_file" 2>/dev/null || true
+}
+
+wechat_window_ids() {
+  list_windows | awk '$3 == "wechat.wechat" { print $1 }'
+}
+
+mark_initial_windows_seen
+
+while true; do
+  now="$(date +%s)"
+  if [ $((now - last_daemon_check_at)) -ge 30 ]; then
+    last_daemon_check_at="$now"
+    start_notification_daemon
+  fi
+
+  if ! xdpyinfo -display "$display" >/dev/null 2>&1; then
+    sleep 2
+    continue
+  fi
+
+  while read -r id; do
+    [ -n "$id" ] || continue
+
+    if window_has_attention "$id"; then
+      maybe_notice "attention:$id"
+      continue
+    fi
+
+    title="$(window_title "$id")"
+    if [ -n "$title" ] && title_looks_unread "$title"; then
+      maybe_notice "title:$id:$title"
+    fi
+  done < <(wechat_window_ids)
+
+  list_windows | while read -r id desktop pid class host title_rest; do
+    [ -n "${id:-}" ] || continue
+    case "${class:-}" in
+      wechat.wechat|wechat.*|*.wechat)
+        if ! grep -Fxq "$id" "$seen_file" 2>/dev/null; then
+          printf '%s\n' "$id" >>"$seen_file"
+          maybe_notice "new-window:$id"
+        fi
+        ;;
+    esac
+  done
+
+  sleep 1
+done

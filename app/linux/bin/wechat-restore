@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="$HOME/.cache/wechat-desktop"
+display="${WECHAT_DESKTOP_DISPLAY:-}"
+
+if [ -z "$display" ]; then
+  display="$(cat "$state_dir/display" 2>/dev/null || true)"
+fi
+
+if [ -z "$display" ]; then
+  display=":20"
+fi
+
+export DISPLAY="$display"
+unset WAYLAND_DISPLAY
+
+if ! xdpyinfo -display "$display" >/dev/null 2>&1; then
+  exec wechat-desktop
+fi
+
+if command -v tint2 >/dev/null 2>&1; then
+  if ! ps -p "$(cat "$state_dir/tint2.pid" 2>/dev/null || echo 0)" >/dev/null 2>&1; then
+    if [ -r /etc/xdg/tint2/tint2rc ]; then
+      nohup tint2 -c /etc/xdg/tint2/tint2rc >"$state_dir/tint2.log" 2>&1 &
+    else
+      nohup tint2 >"$state_dir/tint2.log" 2>&1 &
+    fi
+    echo $! >"$state_dir/tint2.pid"
+    sleep 0.3
+  fi
+fi
+
+window_ids="$(wmctrl -lx 2>/dev/null | awk '$3 == "wechat.wechat" { print $1 }' | tr '\n' ' ')"
+
+if [ -z "$window_ids" ]; then
+  window_ids="$(xdotool search --class '^wechat$' 2>/dev/null | tr '\n' ' ' || true)"
+fi
+
+if [ -z "$window_ids" ]; then
+  echo "No WeChat window found on $display; starting WeChat Desktop." >&2
+  exec wechat-desktop
+fi
+
+for window_id in $window_ids; do
+  wmctrl -i -r "$window_id" -b remove,hidden,shaded,skip_taskbar >/dev/null 2>&1 || true
+  xdotool windowmap "$window_id" windowraise "$window_id" windowactivate "$window_id" >/dev/null 2>&1 || true
+  wmctrl -i -a "$window_id" >/dev/null 2>&1 || true
+done

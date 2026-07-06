@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="$HOME/.cache/wechat-desktop"
+pid_file="$state_dir/notice-bridge.pid"
+notification_pid_file="$state_dir/notification-daemon.pid"
+seen_file="$state_dir/notice-bridge.seen"
+manual_log="$state_dir/notice-bridge-manual.log"
+
+mkdir -p "$state_dir"
+
+if [ -s "$pid_file" ]; then
+  old_pid="$(cat "$pid_file" 2>/dev/null || true)"
+  if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+    kill "$old_pid" 2>/dev/null || true
+    sleep 0.5
+  fi
+fi
+
+if [ -s "$notification_pid_file" ]; then
+  old_notification_pid="$(cat "$notification_pid_file" 2>/dev/null || true)"
+  if [ -n "$old_notification_pid" ] && kill -0 "$old_notification_pid" 2>/dev/null; then
+    kill "$old_notification_pid" 2>/dev/null || true
+    sleep 0.2
+  fi
+fi
+
+ps -u "$(id -u)" -o pid=,args= |
+  awk '/bash \/usr\/local\/bin\/wsl-app-notify-bridge$/ || /python3 .*wsl-app-notification-daemon/ { print $1 }' |
+  while read -r pid; do
+    [ -n "$pid" ] || continue
+    kill "$pid" 2>/dev/null || true
+  done
+
+rm -f "$pid_file" "$notification_pid_file" "$seen_file"
+
+setsid /usr/local/bin/wsl-app-notify-bridge >"$manual_log" 2>&1 < /dev/null &
+sleep 1
+
+/usr/local/bin/wsl-app-notify-bridge --status

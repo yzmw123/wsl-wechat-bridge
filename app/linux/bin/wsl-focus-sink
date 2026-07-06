@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+display="${WECHAT_DESKTOP_DISPLAY:-}"
+state_dir="${APP_NOTICE_STATE_DIR:-$HOME/.cache/wechat-desktop}"
+if [ -z "$display" ]; then
+  display="$(cat "$state_dir/display" 2>/dev/null || true)"
+fi
+if [ -z "$display" ]; then
+  display=":20"
+fi
+
+export DISPLAY="$display"
+unset WAYLAND_DISPLAY
+
+exec xmessage \
+  -name wsl-focus-sink \
+  -title wsl-focus-sink \
+  -geometry 1x1+0+0 \
+  -buttons "" \
+  ""
