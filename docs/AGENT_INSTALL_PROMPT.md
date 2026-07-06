@@ -13,6 +13,9 @@ https://github.com/yzmw123/wsl-wechat-bridge
 ```text
 Please install WSL WeChat Bridge from https://github.com/yzmw123/wsl-wechat-bridge on my Windows machine.
 
+Please first read and follow the full agent install prompt:
+https://github.com/yzmw123/wsl-wechat-bridge/blob/main/docs/AGENT_INSTALL_PROMPT.md
+
 First inspect whether WSL2 and a usable Ubuntu distro are already installed. If WSL is missing or needs Windows features/reboot/admin changes, explain exactly what is needed and ask for my approval before changing the system. If WSL is ready, install or reuse Ubuntu-22.04 or another Ubuntu distro, install the latest official Linux WeChat package from https://linux.weixin.qq.com/, then install this bridge project.
 
 After installation, run `scripts\doctor.ps1`, start Linux WeChat through the bridge, verify Chinese input works inside Linux WeChat, open the Windows clipboard widget, verify Windows-to-WSL clipboard sync, Linux-WeChat-to-Windows text sync, and that Linux WeChat can pick and save Windows files through `~/Windows-Downloads` or similar links. Give me the daily commands. Do not use unofficial WeChat packages unless I explicitly approve.
