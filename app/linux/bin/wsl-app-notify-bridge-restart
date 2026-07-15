@@ -9,20 +9,56 @@ manual_log="$state_dir/notice-bridge-manual.log"
 
 mkdir -p "$state_dir"
 
+positive_int() {
+  local value="$1" default="$2"
+  case "$value" in
+    ''|*[!0-9]*) printf '%s\n' "$default" ;;
+    0) printf '%s\n' "$default" ;;
+    *) printf '%s\n' "$value" ;;
+  esac
+}
+
+log_max_bytes="$(positive_int "${WSL_WECHAT_LOG_MAX_BYTES:-}" 5242880)"
+log_backups="$(positive_int "${WSL_WECHAT_LOG_BACKUPS:-}" 2)"
+
+rotate_log() {
+  local file="$1" i
+  [ "$log_max_bytes" -gt 0 ] || return 0
+  [ "$log_backups" -gt 0 ] || return 0
+  [ -f "$file" ] || return 0
+  [ "$(wc -c <"$file" 2>/dev/null || echo 0)" -lt "$log_max_bytes" ] && return 0
+
+  i=$((log_backups - 1))
+  while [ "$i" -ge 1 ]; do
+    if [ -f "$file.$i" ]; then
+      mv -f "$file.$i" "$file.$((i + 1))" 2>/dev/null || true
+    fi
+    i=$((i - 1))
+  done
+  mv -f "$file" "$file.1" 2>/dev/null || true
+}
+
+rotate_log "$manual_log"
+
+kill_pid_file_if_matches() {
+  local file="$1" pattern="$2" old_pid args
+  old_pid="$(cat "$file" 2>/dev/null || true)"
+  [ -n "$old_pid" ] || return 0
+  kill -0 "$old_pid" 2>/dev/null || return 0
+  args="$(tr '\0' ' ' <"/proc/$old_pid/cmdline" 2>/dev/null || ps -p "$old_pid" -o args= 2>/dev/null || true)"
+  [ -n "$args" ] || return 0
+  printf '%s\n' "$args" | grep -Eq "$pattern" || return 0
+  kill "$old_pid" 2>/dev/null || true
+}
+
 if [ -s "$pid_file" ]; then
-  old_pid="$(cat "$pid_file" 2>/dev/null || true)"
-  if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
-    kill "$old_pid" 2>/dev/null || true
-    sleep 0.5
-  fi
+  kill_pid_file_if_matches "$pid_file" "wsl-app-notify-bridge"
+  sleep 0.5
 fi
 
 if [ -s "$notification_pid_file" ]; then
-  old_notification_pid="$(cat "$notification_pid_file" 2>/dev/null || true)"
-  if [ -n "$old_notification_pid" ] && kill -0 "$old_notification_pid" 2>/dev/null; then
-    kill "$old_notification_pid" 2>/dev/null || true
-    sleep 0.2
-  fi
+  kill_pid_file_if_matches "$notification_pid_file" "wsl-app-notification-daemon"
+  sleep 0.2
 fi
 
 ps -u "$(id -u)" -o pid=,args= |

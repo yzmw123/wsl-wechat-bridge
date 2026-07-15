@@ -21,10 +21,49 @@ case "${1:-}" in
   *) usage >&2; exit 64 ;;
 esac
 
-out_dir="$HOME/Pictures/WindowsClipboard"
-mkdir -p "$out_dir"
+positive_int() {
+  local value="$1" default="$2"
+  case "$value" in
+    ''|*[!0-9]*) printf '%s\n' "$default" ;;
+    0) printf '%s\n' "$default" ;;
+    *) printf '%s\n' "$value" ;;
+  esac
+}
+
+is_truthy() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on|enabled) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+state_dir="${WECHAT_DESKTOP_STATE_DIR:-$HOME/.cache/wechat-desktop}"
+private_root="${XDG_RUNTIME_DIR:-$state_dir/runtime}/wsl-wechat-bridge"
+out_dir="$private_root/winclip2wechat"
+runtime_dir="$private_root/xclip"
+clipboard_ttl_seconds="$(positive_int "${WSL_WECHAT_CLIPBOARD_TTL_SECONDS:-}" 3600)"
+verbose_clipboard="${WSL_WECHAT_VERBOSE_CLIPBOARD:-0}"
+mkdir -p "$state_dir" "$private_root" "$out_dir" "$runtime_dir"
+chmod 700 "$state_dir" "$private_root" "$out_dir" "$runtime_dir" 2>/dev/null || true
+
+cleanup_private_files() {
+  local ttl_minutes
+  ttl_minutes=$((clipboard_ttl_seconds / 60))
+  [ "$ttl_minutes" -lt 1 ] && ttl_minutes=1
+
+  find "$out_dir" -maxdepth 1 -type f -mmin "+$ttl_minutes" -delete 2>/dev/null || true
+  find "$out_dir" -maxdepth 1 -type f -printf '%T@ %p\n' 2>/dev/null |
+    sort -rn |
+    awk 'NR > 80 { sub(/^[^ ]+ /, ""); print }' |
+    while IFS= read -r old_file; do
+      rm -f -- "$old_file"
+    done
+}
+
+cleanup_private_files
+
 out_file="$out_dir/clip-$(date +%Y%m%d-%H%M%S).png"
-text_file="$out_dir/last-windows-text.txt"
+text_file="$out_dir/windows-text-$(date +%Y%m%d-%H%M%S).txt"
 win_out_file="$(wslpath -w "$out_file")"
 win_text_file="$(wslpath -w "$text_file")"
 
@@ -70,6 +109,7 @@ exit 2
 set +e
 ps_file="$out_dir/read-winclip-image.ps1"
 printf '%s\n' "$ps_code" >"$ps_file"
+chmod 600 "$ps_file" 2>/dev/null || true
 ps_output="$(
   powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File "$(wslpath -w "$ps_file")" "$win_out_file" "$win_text_file" 2>&1
 )"
@@ -77,9 +117,7 @@ ps_status=$?
 set -e
 
 first_line="$(printf '%s\n' "$ps_output" | sed -n '1p' | tr -d '\r')"
-
-runtime_dir="${XDG_RUNTIME_DIR:-/tmp}/winclip2wechat"
-mkdir -p "$runtime_dir"
+chmod 600 "$out_file" "$text_file" 2>/dev/null || true
 
 target_displays=()
 if [ -n "${DISPLAY:-}" ]; then
@@ -131,10 +169,11 @@ kill_old_owner() {
 }
 
 if [ "$ps_status" -eq 10 ] || [ "$first_line" = "files" ]; then
-  win_files="$out_dir/last-windows-files.txt"
-  uri_file="$out_dir/last-windows-files.uri-list"
+  win_files="$out_dir/windows-files-$(date +%Y%m%d-%H%M%S).txt"
+  uri_file="$out_dir/windows-files-$(date +%Y%m%d-%H%M%S).uri-list"
   printf '%s\n' "$ps_output" | sed '1d;s/\r$//' >"$win_files"
   : >"$uri_file"
+  chmod 600 "$win_files" "$uri_file" 2>/dev/null || true
 
   while IFS= read -r win_file; do
     [ -n "$win_file" ] || continue
@@ -149,8 +188,13 @@ PY
   done <"$win_files"
 
   if [ ! -s "$uri_file" ]; then
-    echo "Windows clipboard contains file(s), but they could not be mapped into WSL:"
-    cat "$win_files"
+    file_count="$(grep -cve '^[[:space:]]*$' "$win_files" 2>/dev/null || true)"
+    echo "Windows clipboard contains file(s), but they could not be mapped into WSL: count=${file_count:-0}"
+    if is_truthy "$verbose_clipboard"; then
+      cat "$win_files"
+    else
+      echo "Set WSL_WECHAT_VERBOSE_CLIPBOARD=1 to print file paths for debugging."
+    fi
     exit 10
   fi
 
@@ -169,8 +213,11 @@ PY
     wl-copy --type text/uri-list <"$uri_file" 2>"$runtime_dir/wl-copy-files.log" || true
   fi
 
-  echo "Linux clipboard now contains file URI(s):"
-  cat "$uri_file"
+  uri_count="$(grep -c '^file:' "$uri_file" 2>/dev/null || true)"
+  echo "Linux clipboard now contains file URI(s): count=${uri_count:-0}"
+  if is_truthy "$verbose_clipboard"; then
+    cat "$uri_file"
+  fi
 
   if [ "$send_paste" -eq 1 ]; then
     sleep 0.2
@@ -238,15 +285,8 @@ if command -v wl-copy >/dev/null 2>&1 && [ -n "${WAYLAND_DISPLAY:-}" ]; then
   wl-copy --type image/png <"$out_file" 2>"$runtime_dir/wl-copy.log" || true
 fi
 
-echo "Linux clipboard now contains image/png:"
-echo "$out_file"
-
-find "$out_dir" -maxdepth 1 -type f -name 'clip-*.png' -printf '%T@ %p\n' \
-  | sort -rn \
-  | awk 'NR > 50 { sub(/^[^ ]+ /, ""); print }' \
-  | while IFS= read -r old_file; do
-      rm -f -- "$old_file"
-    done
+image_bytes="$(wc -c <"$out_file" 2>/dev/null | tr -d '[:space:]' || true)"
+echo "Linux clipboard now contains image/png: bytes=${image_bytes:-0}"
 
 if [ "$send_paste" -eq 1 ]; then
   sleep 0.2

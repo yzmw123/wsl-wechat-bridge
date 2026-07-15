@@ -20,7 +20,20 @@ LOG_FILE = os.path.join(STATE_DIR, "badge-notify-watch.log")
 PID_FILE = os.path.join(STATE_DIR, "badge-notify-watch.pid")
 DEFAULT_DISPLAY = ":20"
 DEFAULT_POLL_SECONDS = 3.0
+DEFAULT_IDLE_POLL_SECONDS = 10.0
 DEFAULT_DEBOUNCE_SECONDS = 18.0
+
+
+def positive_int_env(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, "") or default)
+        return value if value > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+LOG_MAX_BYTES = positive_int_env("WSL_WECHAT_LOG_MAX_BYTES", 5242880)
+LOG_BACKUPS = positive_int_env("WSL_WECHAT_LOG_BACKUPS", 2)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -79,10 +92,33 @@ class BadgeAnalysis:
 def log(message: str) -> None:
     try:
         os.makedirs(STATE_DIR, exist_ok=True)
+        rotate_log(LOG_FILE)
         with open(LOG_FILE, "a", encoding="utf-8") as fh:
             fh.write(f"{datetime.now().astimezone().isoformat()} {message}\n")
     except Exception:
         pass
+
+
+def rotate_log(path: str) -> None:
+    try:
+        if LOG_MAX_BYTES <= 0 or LOG_BACKUPS <= 0:
+            return
+        if not os.path.exists(path) or os.path.getsize(path) < LOG_MAX_BYTES:
+            return
+        for index in range(LOG_BACKUPS - 1, 0, -1):
+            src = f"{path}.{index}"
+            dst = f"{path}.{index + 1}"
+            if os.path.exists(src):
+                os.replace(src, dst)
+        os.replace(path, f"{path}.1")
+    except Exception:
+        pass
+
+
+def signature_hash(signature: str) -> str:
+    if not signature:
+        return "empty"
+    return hashlib.sha256(signature.encode("utf-8", errors="replace")).hexdigest()[:16]
 
 
 def windows_env_path(name: str) -> str:
@@ -559,7 +595,13 @@ def send_windows_notice() -> None:
 
 
 def is_pid_running(pid: str) -> bool:
-    return bool(pid) and os.path.exists(f"/proc/{pid}")
+    if not pid or not os.path.exists(f"/proc/{pid}"):
+        return False
+    try:
+        cmdline = pathlib.Path(f"/proc/{pid}/cmdline").read_text(encoding="utf-8", errors="ignore")
+        return "wsl-app-badge-notify-watch" in cmdline
+    except Exception:
+        return False
 
 
 def status() -> int:
@@ -583,11 +625,12 @@ def write_pid() -> None:
         fh.write(str(os.getpid()))
 
 
-def daemon(display: str, poll_seconds: float, debounce_seconds: float) -> int:
+def daemon(display: str, poll_seconds: float, idle_poll_seconds: float, debounce_seconds: float) -> int:
     write_pid()
-    log(f"started pid={os.getpid()} display={display} poll={poll_seconds:g}s")
+    log(f"started pid={os.getpid()} display={display} poll={poll_seconds:g}s idle_poll={idle_poll_seconds:g}s")
     baseline: str | None = None
     last_notice_at = 0.0
+    sleep_seconds = poll_seconds
 
     try:
         while True:
@@ -602,7 +645,7 @@ def daemon(display: str, poll_seconds: float, debounce_seconds: float) -> int:
                     log(
                         "baseline "
                         f"numeric={len(analysis.numeric_badges)} plain={len(analysis.plain_dots)} "
-                        f"signature={signature or 'empty'}"
+                        f"signature_hash={signature_hash(signature)}"
                     )
                 elif foreground_active:
                     if signature != baseline:
@@ -618,15 +661,17 @@ def daemon(display: str, poll_seconds: float, debounce_seconds: float) -> int:
                         log(
                             "notify reason=numeric-badge "
                             f"numeric={len(analysis.numeric_badges)} plain={len(analysis.plain_dots)} "
-                            f"signature={signature}"
+                            f"signature_hash={signature_hash(signature)}"
                         )
                         send_windows_notice()
                     baseline = signature
                 elif not signature:
                     baseline = signature
+                sleep_seconds = poll_seconds if signature or foreground_active else idle_poll_seconds
             except Exception as exc:
                 log(f"poll-error={exc}")
-            time.sleep(poll_seconds)
+                sleep_seconds = max(idle_poll_seconds, poll_seconds)
+            time.sleep(max(0.5, sleep_seconds))
     finally:
         try:
             os.remove(PID_FILE)
@@ -648,6 +693,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Watch WeChat Desktop for numeric unread badges.")
     parser.add_argument("--display", default=os.environ.get("WECHAT_DESKTOP_DISPLAY", DEFAULT_DISPLAY))
     parser.add_argument("--poll-seconds", type=float, default=DEFAULT_POLL_SECONDS)
+    parser.add_argument("--idle-poll-seconds", type=float, default=DEFAULT_IDLE_POLL_SECONDS)
     parser.add_argument("--debounce-seconds", type=float, default=DEFAULT_DEBOUNCE_SECONDS)
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--once", action="store_true")
@@ -669,7 +715,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(analysis_to_dict(analysis), ensure_ascii=False, indent=2))
         return 0 if analysis.should_notify else 1
 
-    return daemon(args.display, args.poll_seconds, args.debounce_seconds)
+    return daemon(args.display, args.poll_seconds, args.idle_poll_seconds, args.debounce_seconds)
 
 
 if __name__ == "__main__":

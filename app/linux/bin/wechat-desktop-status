@@ -2,6 +2,7 @@
 set -euo pipefail
 
 state_dir="$HOME/.cache/wechat-desktop"
+config_file="${XDG_CONFIG_HOME:-$HOME/.config}/wsl-wechat-bridge/config"
 display="${WECHAT_DESKTOP_DISPLAY:-}"
 
 if [ -z "$display" ]; then
@@ -13,7 +14,53 @@ fi
 
 uid="$(id -u)"
 
+read_config_value() {
+  local key="$1" line value
+  [ -r "$config_file" ] || return 1
+
+  while IFS= read -r line; do
+    line="${line%%#*}"
+    case "$line" in
+      "$key="*)
+        value="${line#*=}"
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        printf '%s\n' "$value"
+        return 0
+        ;;
+    esac
+  done <"$config_file"
+
+  return 1
+}
+
+config_value() {
+  local key="$1" default="${2:-}" value
+  value="$(printenv "$key" 2>/dev/null || true)"
+  if [ -n "$value" ]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+
+  if value="$(read_config_value "$key" 2>/dev/null)"; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+
+  printf '%s\n' "$default"
+}
+
 printf 'display=%s\n' "$display"
+printf 'config_file=%s\n' "$config_file"
+printf 'notice_bridge_enabled=%s\n' "$(config_value NOTICE_BRIDGE_ENABLED 1)"
+printf 'focus_watch_enabled=%s\n' "$(config_value FOCUS_WATCH_ENABLED 1)"
+printf 'clipboard_watch_enabled=%s\n' "$(config_value CLIPBOARD_WATCH_ENABLED 1)"
+printf 'badge_watch_enabled=%s\n' "$(config_value BADGE_WATCH_ENABLED 0)"
+printf 'log_max_bytes=%s\n' "$(config_value WSL_WECHAT_LOG_MAX_BYTES 5242880)"
+printf 'log_backups=%s\n' "$(config_value WSL_WECHAT_LOG_BACKUPS 2)"
+printf 'clipboard_ttl_seconds=%s\n' "$(config_value WSL_WECHAT_CLIPBOARD_TTL_SECONDS 3600)"
 
 if xdpyinfo -display "$display" >/dev/null 2>&1; then
   printf 'desktop=running\n'
@@ -29,6 +76,12 @@ bridge_pids="$(
     tr '\n' ' ' |
     sed 's/[[:space:]]*$//'
 )"
+notification_daemon_pids="$(
+  ps -u "$uid" -o pid=,args= |
+    awk '/wsl-app-notification-daemon/ && !/py_compile/ { print $1 }' |
+    tr '\n' ' ' |
+    sed 's/[[:space:]]*$//'
+)"
 badge_pids="$(
   ps -u "$uid" -o pid=,args= |
     awk '/\/usr\/local\/bin\/wsl-app-badge-notify-watch/ && !/--status/ && !/py_compile/ { print $1 }' |
@@ -39,6 +92,7 @@ badge_pids="$(
 printf 'wechat_pids=%s\n' "${wechat_pids:-none}"
 printf 'xephyr_pids=%s\n' "${xephyr_pids:-none}"
 printf 'notice_bridge_pids=%s\n' "${bridge_pids:-none}"
+printf 'notification_daemon_pids=%s\n' "${notification_daemon_pids:-none}"
 printf 'badge_watch_pids=%s\n' "${badge_pids:-none}"
 if command -v wsl-app-badge-notify-watch >/dev/null 2>&1; then
   printf 'badge_watch=\n'

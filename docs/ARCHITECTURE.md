@@ -26,7 +26,18 @@ Supported keys:
 
 ```text
 WECHAT_COMMAND=/path/to/wechat
+NOTICE_BRIDGE_ENABLED=1
+FOCUS_WATCH_ENABLED=1
+CLIPBOARD_WATCH_ENABLED=1
+BADGE_WATCH_ENABLED=0
+BADGE_WATCH_POLL_SECONDS=3
+BADGE_WATCH_IDLE_POLL_SECONDS=10
+WSL_WECHAT_LOG_MAX_BYTES=5242880
+WSL_WECHAT_LOG_BACKUPS=2
+WSL_WECHAT_CLIPBOARD_TTL_SECONDS=3600
 ```
+
+`NOTICE_BRIDGE_ENABLED`, `FOCUS_WATCH_ENABLED`, and `CLIPBOARD_WATCH_ENABLED` default to enabled. `BADGE_WATCH_ENABLED` defaults to disabled because the badge watcher captures and analyzes the WeChat window periodically; enable it only when the lower-cost notification signals are not enough.
 
 The installer also creates convenience symlinks in the WSL home directory when the corresponding Windows paths are available:
 
@@ -56,6 +67,20 @@ If users can launch Linux WeChat but cannot type Chinese, check the input packag
 - `wsl-app-notify-bridge` and `wsl-app-notification-daemon`: forward Linux notification signals to Windows.
 - `wsl-app-badge-notify-watch`: optional unread badge watcher for notification experiments.
 - `scripts/doctor.ps1`: read-only public health check for WSL, helper files, dependencies, WeChat command detection, and Windows file links.
+
+## Process Lifecycle
+
+`wechat-desktop` starts helper services without broad process cleanup. It no longer kills existing `wechat`, `WeChatAppEx`, or `fcitx5` processes during startup. `fcitx5` is started only when it is not already running for the user.
+
+`wechat-desktop-stop` collects PIDs from state files plus exact user-process matches. Normal stop sends `SIGTERM` and returns non-zero if anything survives; `--force` is required before `SIGKILL` is used. The stop command also stops the Windows focus and clipboard watchers through their private launcher scripts, with command-line validation before terminating PID-file processes.
+
+## Logging And Privacy
+
+Runtime logs rotate by default at 5 MB with two backups. The size and backup count can be changed with `WSL_WECHAT_LOG_MAX_BYTES` and `WSL_WECHAT_LOG_BACKUPS`.
+
+Logs should contain operational metadata only: PIDs, counts, byte sizes, and hashes. Windows foreground titles, D-Bus notification summaries/bodies, clipboard text, and Windows file paths are not written by default. The status collector redacts legacy sensitive fields when tailing old logs.
+
+Clipboard bridge payloads live under a private runtime/cache directory, not `~/Pictures`. Text and file-list payloads are written with restrictive permissions, copied into the target clipboard, and removed or expired by `WSL_WECHAT_CLIPBOARD_TTL_SECONDS`. `winclip2wechat` prints file paths only when `WSL_WECHAT_VERBOSE_CLIPBOARD=1` is set for debugging.
 
 ## Skill vs Widget
 

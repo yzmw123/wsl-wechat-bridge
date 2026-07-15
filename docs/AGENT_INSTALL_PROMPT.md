@@ -31,7 +31,7 @@ Important safety rules:
 - Ask for my approval before enabling Windows features, installing WSL, rebooting Windows, running elevated/admin commands, or using sudo in WSL.
 - Prefer the official Linux WeChat download page: https://linux.weixin.qq.com/
 - Do not use unofficial WeChat packages, Flatpak wrappers, mirrors, or third-party repacks unless I explicitly approve.
-- Do not log or print my clipboard contents or WeChat message contents.
+- Do not log or print my clipboard contents, WeChat message contents, Windows foreground titles, notification summaries/bodies, or Windows file paths from clipboard payloads.
 - If you create Windows shortcuts, do not create visible Windows Start Menu entries named WeChat/微信 unless I explicitly ask.
 
 Work step by step:
@@ -69,6 +69,7 @@ Work step by step:
    - Confirm `notice.ps1` exists there; it may be a hidden file.
    - Confirm WSL helper commands exist in `/usr/local/bin`, especially `wechat-desktop`, `wechat-desktop-stop`, `winclip2wechat`, and `wechatclip2win`.
    - Confirm Windows file links exist in WSL, such as `~/Windows-C`, `~/Windows-Downloads`, and `~/Windows-Documents`, so Linux WeChat can send files directly from Windows disks and save received files back to Windows folders.
+   - Leave `BADGE_WATCH_ENABLED=0` unless I explicitly ask for the experimental unread badge screenshot watcher.
    - Run:
      `powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Distro <DistroName>`
 

@@ -4,6 +4,33 @@ set -euo pipefail
 state_dir="${WECHAT_DESKTOP_STATE_DIR:-$HOME/.cache/wechat-desktop}"
 mkdir -p "$state_dir"
 
+positive_int() {
+  local value="$1" default="$2"
+  case "$value" in
+    ''|*[!0-9]*) printf '%s\n' "$default" ;;
+    0) printf '%s\n' "$default" ;;
+    *) printf '%s\n' "$value" ;;
+  esac
+}
+
+private_root="${XDG_RUNTIME_DIR:-$state_dir/runtime}/wsl-wechat-bridge"
+private_dir="$private_root/wechatclip2win"
+clipboard_ttl_seconds="$(positive_int "${WSL_WECHAT_CLIPBOARD_TTL_SECONDS:-}" 3600)"
+log_max_bytes="$(positive_int "${WSL_WECHAT_LOG_MAX_BYTES:-}" 5242880)"
+log_backups="$(positive_int "${WSL_WECHAT_LOG_BACKUPS:-}" 2)"
+mkdir -p "$private_root" "$private_dir"
+chmod 700 "$state_dir" "$private_root" "$private_dir" 2>/dev/null || true
+
+cleanup_private_files() {
+  local ttl_minutes
+  ttl_minutes=$((clipboard_ttl_seconds / 60))
+  [ "$ttl_minutes" -lt 1 ] && ttl_minutes=1
+
+  find "$private_dir" -maxdepth 1 -type f -mmin "+$ttl_minutes" -delete 2>/dev/null || true
+}
+
+cleanup_private_files
+
 display="${WECHAT_DESKTOP_DISPLAY:-}"
 if [ -z "$display" ]; then
   display="$(cat "$state_dir/display" 2>/dev/null || true)"
@@ -14,7 +41,7 @@ fi
 
 log_file="$state_dir/wechatclip2win.log"
 pid_file="$state_dir/wechatclip2win.pid"
-last_text_file="$state_dir/wechatclip2win-last.txt"
+last_text_file="$private_dir/wechatclip2win-last.txt"
 interval="0.8"
 
 usage() {
@@ -35,12 +62,34 @@ EOF
 }
 
 log() {
+  rotate_log "$log_file"
   printf '%s %s\n' "$(date -Is)" "$*" >>"$log_file"
 }
 
+rotate_log() {
+  local file="$1" i
+  [ "$log_max_bytes" -gt 0 ] || return 0
+  [ "$log_backups" -gt 0 ] || return 0
+  [ -f "$file" ] || return 0
+  [ "$(wc -c <"$file" 2>/dev/null || echo 0)" -lt "$log_max_bytes" ] && return 0
+
+  i=$((log_backups - 1))
+  while [ "$i" -ge 1 ]; do
+    if [ -f "$file.$i" ]; then
+      mv -f "$file.$i" "$file.$((i + 1))" 2>/dev/null || true
+    fi
+    i=$((i - 1))
+  done
+  mv -f "$file" "$file.1" 2>/dev/null || true
+}
+
 is_running_pid() {
-  local pid="${1:-}"
-  [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1
+  local pid="${1:-}" args
+  [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1 || return 1
+  args="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || ps -p "$pid" -o args= 2>/dev/null || true)"
+  [ -n "$args" ] || return 1
+  printf '%s\n' "$args" | grep -Eq 'wechatclip2win.*--watch|bash .*/wechatclip2win .*--watch' || return 1
+  return 0
 }
 
 read_linux_clipboard() {
@@ -79,7 +128,8 @@ probe_clipboard() {
     return 0
   fi
 
-  tmp_file="$(mktemp "$state_dir/wechatclip2win-probe.XXXXXX")"
+  tmp_file="$(mktemp "$private_dir/wechatclip2win-probe.XXXXXX")"
+  chmod 600 "$tmp_file" 2>/dev/null || true
   if ! read_linux_clipboard >"$tmp_file"; then
     rm -f "$tmp_file"
     printf 'display=%s\nkind=none\ntargets=%s\n' "$display" "$targets"
@@ -118,7 +168,8 @@ sync_once() {
     return 2
   fi
 
-  tmp_file="$(mktemp "$state_dir/wechatclip2win.XXXXXX")"
+  tmp_file="$(mktemp "$private_dir/wechatclip2win.XXXXXX")"
+  chmod 600 "$tmp_file" 2>/dev/null || true
 
   if ! read_linux_clipboard >"$tmp_file"; then
     rm -f "$tmp_file"
@@ -133,6 +184,7 @@ sync_once() {
   fi
 
   mv -f "$tmp_file" "$last_text_file"
+  chmod 600 "$last_text_file" 2>/dev/null || true
   copy_file_to_windows_clipboard "$last_text_file"
 
   hash="$(text_hash "$last_text_file")"
@@ -148,6 +200,7 @@ PY
 
   log "synced display=$display bytes=$byte_count chars=$char_count sha256=$hash"
   printf 'copied_to_windows bytes=%s chars=%s display=%s\n' "$byte_count" "$char_count" "$display"
+  rm -f "$last_text_file"
 }
 
 stop_watcher() {
@@ -186,14 +239,17 @@ watch_loop() {
   log "watch-started pid=$$ display=$display interval=$interval"
 
   while true; do
-    tmp_file="$(mktemp "$state_dir/wechatclip2win-watch.XXXXXX")"
+    tmp_file="$(mktemp "$private_dir/wechatclip2win-watch.XXXXXX")"
+    chmod 600 "$tmp_file" 2>/dev/null || true
     if read_linux_clipboard >"$tmp_file" 2>/dev/null && [ -s "$tmp_file" ]; then
       current_hash="$(text_hash "$tmp_file")"
       if [ "$current_hash" != "$last_hash" ]; then
         mv -f "$tmp_file" "$last_text_file"
+        chmod 600 "$last_text_file" 2>/dev/null || true
         copy_file_to_windows_clipboard "$last_text_file" || true
         last_hash="$current_hash"
         log "watch-synced display=$display bytes=$(wc -c <"$last_text_file" | tr -d '[:space:]') sha256=$current_hash"
+        rm -f "$last_text_file"
       else
         rm -f "$tmp_file"
       fi

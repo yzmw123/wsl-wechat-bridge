@@ -1,11 +1,3 @@
 @echo off
-set "PIDFILE=%~dp0clipboard-watch.pid"
-if not exist "%PIDFILE%" (
-  echo clipboard watcher is not running
-  exit /b 0
-)
-set /p PID=<"%PIDFILE%"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Stop-Process -Id %PID% -Force -ErrorAction SilentlyContinue"
-del "%PIDFILE%" >nul 2>nul
-echo clipboard watcher stopped
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$pidFile = Join-Path '%~dp0' 'clipboard-watch.pid'; if (-not (Test-Path -LiteralPath $pidFile)) { 'clipboard watcher is not running'; exit 0 }; $watchPid = Get-Content -LiteralPath $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1; if ($watchPid -match '^\d+$') { $proc = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $watchPid) -ErrorAction SilentlyContinue; if ($proc -and $proc.CommandLine -match 'clipboard-watch\.ps1') { Stop-Process -Id ([int]$watchPid) -Force -ErrorAction SilentlyContinue; 'clipboard watcher stopped' } else { 'clipboard watcher pid did not match clipboard-watch.ps1' } } else { 'clipboard watcher pid file is invalid' }; Remove-Item -LiteralPath $pidFile -Force -ErrorAction SilentlyContinue"
 

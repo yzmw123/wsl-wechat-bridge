@@ -180,12 +180,25 @@ $requiredHelpers = @(
     "wechatclip2win",
     "wsl-app-notify-bridge",
     "wsl-app-notify-bridge-restart",
+    "wsl-app-notification-daemon",
+    "wsl-app-badge-notify-watch",
     "wsl-app-focus-bridge",
     "wsl-focus-sink"
 )
 
 foreach ($helper in $requiredHelpers) {
     Test-WslCommand -CommandName $helper -PackageName "project installer"
+}
+
+Write-Section "Runtime defaults"
+$statusProbe = Invoke-WslBash -Command "wechat-desktop-status 2>/dev/null | grep -E '^(notice_bridge_enabled|focus_watch_enabled|clipboard_watch_enabled|badge_watch_enabled|log_max_bytes|log_backups|clipboard_ttl_seconds)='"
+if ($statusProbe.ExitCode -eq 0 -and $statusProbe.Output.Count -gt 0) {
+    foreach ($line in $statusProbe.Output) {
+        Write-Check "ok" "runtime setting" $line
+    }
+}
+else {
+    Write-Check "warn" "runtime settings unavailable" "Run wechat-desktop-status inside WSL for details."
 }
 
 Write-Section "Linux dependencies"

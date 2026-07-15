@@ -21,9 +21,62 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pidFile = Join-Path $scriptDir "clipboard-watch.pid"
 $logFile = Join-Path $scriptDir "clipboard-watch.log"
 
+function Get-PositiveIntSetting {
+    param(
+        [string]$Name,
+        [int]$Default
+    )
+
+    try {
+        $raw = [Environment]::GetEnvironmentVariable($Name)
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            return $Default
+        }
+
+        $value = [int64]$raw
+        if ($value -gt 0 -and $value -le [int64][int]::MaxValue) {
+            return [int]$value
+        }
+    }
+    catch {}
+
+    return $Default
+}
+
+$LogMaxBytes = Get-PositiveIntSetting -Name "WSL_WECHAT_LOG_MAX_BYTES" -Default 5242880
+$LogBackups = Get-PositiveIntSetting -Name "WSL_WECHAT_LOG_BACKUPS" -Default 2
+
+function Rotate-LogFile {
+    param([string]$Path)
+
+    try {
+        if ($LogMaxBytes -le 0 -or $LogBackups -le 0) {
+            return
+        }
+        if (-not (Test-Path -LiteralPath $Path)) {
+            return
+        }
+        $item = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+        if ($null -eq $item -or $item.Length -lt $LogMaxBytes) {
+            return
+        }
+
+        for ($i = $LogBackups - 1; $i -ge 1; $i--) {
+            $src = "$Path.$i"
+            $dst = "$Path.$($i + 1)"
+            if (Test-Path -LiteralPath $src) {
+                Move-Item -LiteralPath $src -Destination $dst -Force -ErrorAction SilentlyContinue
+            }
+        }
+        Move-Item -LiteralPath $Path -Destination "$Path.1" -Force -ErrorAction SilentlyContinue
+    }
+    catch {}
+}
+
 function Write-ClipLog {
     param([string]$Message)
     try {
+        Rotate-LogFile -Path $logFile
         "$(Get-Date -Format o) $Message" | Out-File -FilePath $logFile -Encoding UTF8 -Append
     }
     catch {}
@@ -32,7 +85,8 @@ function Write-ClipLog {
 function Test-WatcherPid {
     param([string]$PidText)
     if ($PidText -match '^\d+$') {
-        return [bool](Get-Process -Id ([int]$PidText) -ErrorAction SilentlyContinue)
+        $process = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $PidText) -ErrorAction SilentlyContinue
+        return [bool]($process -and $process.CommandLine -match 'clipboard-watch\.ps1')
     }
     return $false
 }

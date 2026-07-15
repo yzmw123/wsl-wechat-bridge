@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import glob
+import hashlib
 import subprocess
 import sys
 import time
@@ -22,6 +23,18 @@ FILE_NOTICE_IGNORE_SECONDS = 5
 FOCUS_STATE_MAX_AGE_SECONDS = 10
 FILE_NOTICE_MODE = os.environ.get("WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE", "log-only").strip().lower()
 
+
+def positive_int_env(name, default):
+    try:
+        value = int(os.environ.get(name, "") or default)
+        return value if value > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+LOG_MAX_BYTES = positive_int_env("WSL_WECHAT_LOG_MAX_BYTES", 5242880)
+LOG_BACKUPS = positive_int_env("WSL_WECHAT_LOG_BACKUPS", 2)
+
 file_signature_cache = {}
 last_file_notice_at = 0.0
 last_file_suppressed_at = 0.0
@@ -29,12 +42,33 @@ focus_state_file_cache = ""
 started_at = time.monotonic()
 
 
+def rotate_log(path):
+    try:
+        if LOG_MAX_BYTES <= 0 or LOG_BACKUPS <= 0:
+            return
+        if not os.path.exists(path) or os.path.getsize(path) < LOG_MAX_BYTES:
+            return
+        for index in range(LOG_BACKUPS - 1, 0, -1):
+            src = f"{path}.{index}"
+            dst = f"{path}.{index + 1}"
+            if os.path.exists(src):
+                os.replace(src, dst)
+        os.replace(path, f"{path}.1")
+    except Exception:
+        pass
+
+
 def log(message):
     try:
+        rotate_log(LOG_FILE)
         with open(LOG_FILE, "a", encoding="utf-8") as fh:
             fh.write(f"{datetime.now().astimezone().isoformat()} {message}\n")
     except Exception:
         pass
+
+
+def short_hash(value):
+    return hashlib.sha256(value.encode("utf-8", errors="replace")).hexdigest()[:16]
 
 
 def windows_env_path(name):
@@ -248,8 +282,8 @@ def poll_message_activity():
 
         if changed:
             now = time.monotonic()
-            sample = ", ".join(os.path.basename(path) for path in changed[:4])
-            log(f"file-activity count={len(changed)} sample={sample}")
+            sample_hash = short_hash("\0".join(os.path.basename(path) for path in changed[:20]))
+            log(f"file-activity count={len(changed)} sample_hash={sample_hash}")
             if now - started_at >= FILE_NOTICE_IGNORE_SECONDS and now - last_file_notice_at >= FILE_NOTICE_DEBOUNCE_SECONDS:
                 if FILE_NOTICE_MODE not in ("1", "true", "yes", "on", "notify"):
                     if now - last_file_suppressed_at >= FILE_NOTICE_DEBOUNCE_SECONDS:
@@ -262,7 +296,7 @@ def poll_message_activity():
                         last_file_suppressed_at = now
                     return True
                 last_file_notice_at = now
-                send_windows_notice(f"file-activity:{sample}")
+                send_windows_notice(f"file-activity:count={len(changed)}")
     except Exception as exc:
         log(f"file-watch-error={exc}")
 
@@ -292,10 +326,16 @@ class NotificationServer(dbus.service.Object):
         if int(replaces_id) <= 0:
             self.next_id += 1
 
-        safe_app = str(app_name).replace("\n", " ")[:80]
-        safe_summary = str(summary).replace("\n", " ")[:120]
-        log(f"dbus-notify id={notification_id} app={safe_app} summary={safe_summary}")
-        send_windows_notice(f"dbus:{safe_app}:{safe_summary}")
+        app_text = str(app_name)
+        summary_text = str(summary)
+        body_text = str(body)
+        app_hash = short_hash(app_text) if app_text else "empty"
+        summary_hash = short_hash(summary_text) if summary_text else "empty"
+        log(
+            f"dbus-notify id={notification_id} app_len={len(app_text)} app_hash={app_hash} "
+            f"summary_len={len(summary_text)} summary_hash={summary_hash} body_len={len(body_text)}"
+        )
+        send_windows_notice(f"dbus-notify:app_hash={app_hash}:summary_len={len(summary_text)}")
         return dbus.UInt32(notification_id)
 
 

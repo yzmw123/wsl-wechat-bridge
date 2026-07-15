@@ -27,10 +27,63 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $LogFile = Join-Path $ScriptDir "notice.log"
 $SettingsFile = Join-Path $ScriptDir "settings.json"
 
+function Get-PositiveIntSetting {
+    param(
+        [string]$Name,
+        [int]$Default
+    )
+
+    try {
+        $raw = [Environment]::GetEnvironmentVariable($Name)
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            return $Default
+        }
+
+        $value = [int64]$raw
+        if ($value -gt 0 -and $value -le [int64][int]::MaxValue) {
+            return [int]$value
+        }
+    }
+    catch {}
+
+    return $Default
+}
+
+$LogMaxBytes = Get-PositiveIntSetting -Name "WSL_WECHAT_LOG_MAX_BYTES" -Default 5242880
+$LogBackups = Get-PositiveIntSetting -Name "WSL_WECHAT_LOG_BACKUPS" -Default 2
+
+function Rotate-LogFile {
+    param([string]$Path)
+
+    try {
+        if ($LogMaxBytes -le 0 -or $LogBackups -le 0) {
+            return
+        }
+        if (-not (Test-Path -LiteralPath $Path)) {
+            return
+        }
+        $item = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+        if ($null -eq $item -or $item.Length -lt $LogMaxBytes) {
+            return
+        }
+
+        for ($i = $LogBackups - 1; $i -ge 1; $i--) {
+            $src = "$Path.$i"
+            $dst = "$Path.$($i + 1)"
+            if (Test-Path -LiteralPath $src) {
+                Move-Item -LiteralPath $src -Destination $dst -Force -ErrorAction SilentlyContinue
+            }
+        }
+        Move-Item -LiteralPath $Path -Destination "$Path.1" -Force -ErrorAction SilentlyContinue
+    }
+    catch {}
+}
+
 function Write-NoticeLog {
     param([string]$Message)
 
     try {
+        Rotate-LogFile -Path $LogFile
         "$(Get-Date -Format o) $Message" | Out-File -FilePath $LogFile -Append -Encoding UTF8
     }
     catch {
@@ -235,7 +288,7 @@ public class WslNoActivateNoticeForm : Form {
 
 try {
     $popupEnabled = Get-NoticePopupEnabled
-    Write-NoticeLog "start title=$Title body=$Body popup=$popupEnabled"
+    Write-NoticeLog "start title_chars=$($Title.Length) body_chars=$($Body.Length) popup=$popupEnabled"
     Flash-TargetWindow -WindowTitle $FlashTitle
     if ($popupEnabled) {
         Show-NoticeWindow -NoticeTitle $Title -NoticeBody $Body -TimeoutMs $DurationMs

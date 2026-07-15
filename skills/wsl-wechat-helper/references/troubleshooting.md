@@ -5,10 +5,10 @@
 Start with the read-only status script:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\wsl-wechat-helper\scripts\collect-status.ps1"
+powershell -ExecutionPolicy Bypass -File .\skills\wsl-wechat-helper\scripts\collect-status.ps1 -Distro Ubuntu-22.04
 ```
 
-Then use targeted commands from `commands.md`.
+The collector redacts legacy titles, notification summaries/bodies, and clipboard paths from old logs. Then use targeted commands from `commands.md`.
 
 ## Notification Test Does Not Flash Taskbar
 
@@ -16,15 +16,14 @@ Run:
 
 ```powershell
 wsl -d Ubuntu-22.04 -- wsl-app-notify-bridge --test
-Get-Content "$env:LOCALAPPDATA\WslPrivate\launchers\notice.log" -Tail 40
-wsl -d Ubuntu-22.04 -- bash -lc "tail -n 80 ~/.cache/wechat-desktop/notice-bridge.log"
+powershell -ExecutionPolicy Bypass -File .\skills\wsl-wechat-helper\scripts\collect-status.ps1 -Distro Ubuntu-22.04
 ```
 
 Expected:
 
 - Bridge log includes `notify reason=manual-test`.
 - Bridge log includes `launch=start-process`.
-- Windows helper log includes `start`, `flashed=1`, `popup=disabled` when popups are off, and `done`.
+- Windows helper log includes `start title_chars=... body_chars=...`, `flashed=1`, `popup=disabled` when popups are off, and `done`.
 - `wsl-app-notify-bridge --status` includes `notification_daemon=running`.
 
 The popup is disabled by default. Enable it from the widget's `消息弹窗` checkbox only when a visible popup is wanted; taskbar flashing should work regardless.
@@ -54,7 +53,7 @@ Check whether the Linux notification daemon is running:
 
 ```powershell
 wsl -d Ubuntu-22.04 -- wsl-app-notify-bridge --status
-wsl -d Ubuntu-22.04 -- bash -lc "tail -n 80 ~/.cache/wechat-desktop/notification-daemon.log"
+powershell -ExecutionPolicy Bypass -File .\skills\wsl-wechat-helper\scripts\collect-status.ps1 -Distro Ubuntu-22.04
 ```
 
 Expected:
@@ -63,7 +62,7 @@ Expected:
 - `notification-daemon.log` has a `started ... bus=...` line.
 - `notification-daemon.log` has a `file-watch started ...` line.
 - `notification-daemon.log` has `file-notice-mode=log-only`.
-- When a real Linux notification arrives, it logs `dbus-notify ...`.
+- When a real Linux notification arrives, it logs `dbus-notify ...` with lengths and hashes, not summary/body text.
 - When the diagnostic file watcher sees WeChat message/session activity, it logs `file-activity ...`, but this should not send Windows notices in default `log-only` mode.
 
 If `notification_daemon=stopped`, restart:
@@ -74,7 +73,7 @@ wsl -d Ubuntu-22.04 -- wsl-app-notify-bridge-restart
 
 If the daemon is running but no `dbus-notify` appears during a real message, WeChat did not emit a standard Linux notification for that event. `file-activity ...` only proves storage changed; it no longer means a Windows notice should appear. This is intentional to avoid muted groups, official accounts, service accounts, cross-device sync, and self-sent messages becoming alerts.
 
-If normal private chats still do not alert after this strict mode change, the next fallback should be a smarter unread detector, such as screen/OCR-style unread badge monitoring or carefully scoped metadata inspection, instead of re-enabling broad file-activity alerts.
+If normal private chats still do not alert after this strict mode change, the next fallback is the opt-in unread badge watcher. Set `BADGE_WATCH_ENABLED=1` in `~/.config/wsl-wechat-bridge/config` only when the user accepts the extra screenshot polling cost.
 
 ## WeChat Still Thinks It Is Foreground
 
@@ -92,6 +91,7 @@ Expected when Windows foreground is not WeChat Desktop:
 - `focus_watch=running ...`
 - `active_name=wsl-focus-sink`
 - `focus-watch.log` has a recent `windows_foreground=inactive ...` line.
+- `focus-watch.state` contains `timestamp` and `state` only; it should not contain `title=`.
 
 Restart only the watcher, not WeChat:
 
@@ -151,6 +151,8 @@ wsl -d Ubuntu-22.04 -- wechatclip2win --status
 
 If the log is missing, the watcher may not have been started yet.
 
+Clipboard payload temp files should be under a private runtime/cache directory (`$XDG_RUNTIME_DIR/wsl-wechat-bridge` or `~/.cache/wechat-desktop/runtime/wsl-wechat-bridge`), not `~/Pictures/WindowsClipboard`. `winclip2wechat` should report file counts and image byte sizes by default, not Windows paths.
+
 ## WeChat Says It Is Already Open or Locked
 
 Use the installed stop helper:
@@ -159,7 +161,13 @@ Use the installed stop helper:
 wsl -d Ubuntu-22.04 -- wechat-desktop-stop
 ```
 
-If still stuck:
+Normal stop sends `SIGTERM` and returns non-zero if processes survive. Inspect matches without stopping:
+
+```powershell
+wsl -d Ubuntu-22.04 -- wechat-desktop-stop --dry-run
+```
+
+If still stuck and the user accepts a forceful stop:
 
 ```powershell
 wsl -d Ubuntu-22.04 -- wechat-desktop-stop --force

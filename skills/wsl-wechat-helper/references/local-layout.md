@@ -8,11 +8,22 @@
 - State directory: `~/.cache/wechat-desktop`
 - Config file: `~/.config/wsl-wechat-bridge/config`
 
-Optional config key:
+Optional config keys:
 
 ```text
 WECHAT_COMMAND=/path/to/wechat
+NOTICE_BRIDGE_ENABLED=1
+FOCUS_WATCH_ENABLED=1
+CLIPBOARD_WATCH_ENABLED=1
+BADGE_WATCH_ENABLED=0
+BADGE_WATCH_POLL_SECONDS=3
+BADGE_WATCH_IDLE_POLL_SECONDS=10
+WSL_WECHAT_LOG_MAX_BYTES=5242880
+WSL_WECHAT_LOG_BACKUPS=2
+WSL_WECHAT_CLIPBOARD_TTL_SECONDS=3600
 ```
+
+`BADGE_WATCH_ENABLED` is intentionally disabled by default. `wechat-desktop-status` prints the effective defaults so diagnostics can distinguish a disabled optional watcher from a failed one.
 
 ## Windows File Links
 
@@ -55,6 +66,7 @@ Installed under `/usr/local/bin`:
 - `wsl-app-notify-bridge`
 - `wsl-app-notify-bridge-restart`
 - `wsl-app-notification-daemon`
+- `wsl-app-badge-notify-watch`
 - `wsl-app-focus-bridge`
 - `wsl-focus-sink`
 
@@ -108,7 +120,8 @@ Working behavior:
 - `--status` should show both `running ... display=:20` and `notification_daemon=running ...`.
 - `~/.cache/wechat-desktop/notice-bridge.log` should show `launch=start-process`.
 - `~/.cache/wechat-desktop/notification-daemon.log` should show `started ...`, `file-watch started ...`, and `file-notice-mode=log-only`. It shows `dbus-notify ...` when Linux notifications arrive and `file-activity ...` when the diagnostic message/session storage watcher sees activity. In default `log-only` mode, file activity is logged but does not send Windows notices.
-- `%LOCALAPPDATA%\WslPrivate\launchers\notice.log` should show `start`, `flashed=1`, `popup=disabled` when popups are off, and later `done`.
+- D-Bus notification logs use `app_len`, `app_hash`, `summary_len`, `summary_hash`, and `body_len`; they must not include summary/body text.
+- `%LOCALAPPDATA%\WslPrivate\launchers\notice.log` should show `start`, `title_chars`, `body_chars`, `flashed=1`, `popup=disabled` when popups are off, and later `done`.
 - The helper matches Windows titles containing `WeChat Desktop` or `Ubuntu-22.04`.
 - Message popup windows are disabled by default. The widget's `消息弹窗` checkbox controls `%LOCALAPPDATA%\WslPrivate\launchers\settings.json` and the `NoticePopupEnabled` value; taskbar flashing remains enabled either way.
 - The real Windows taskbar title may look like `[WARN:COPY MODE] WeChat Desktop (Ubuntu-22.04)`.
@@ -120,6 +133,7 @@ Implementation gotcha:
 - Real WeChat messages may use the standard Linux D-Bus notification interface. The local `wsl-app-notification-daemon` owns `org.freedesktop.Notifications` on WeChat's session bus and forwards those notifications to the Windows helper.
 - Some real messages do not emit D-Bus notifications or X11 window signals. The daemon watches WeChat message/session storage file activity only for diagnosis in default `log-only` mode. It does not read message contents and does not use file activity for Windows notices by default, because file writes include muted groups, official accounts, service accounts, cross-device sync, and self-sent messages.
 - A legacy file-activity notice mode can be enabled only deliberately with `WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE=notify`; in that mode `focus-watch.ps1` writes `%LOCALAPPDATA%\WslPrivate\launchers\focus-watch.state` and the notification daemon suppresses file-activity notices while Windows foreground is WeChat Desktop.
+- The optional `wsl-app-badge-notify-watch` watcher is started only when `BADGE_WATCH_ENABLED=1`. It uses `BADGE_WATCH_POLL_SECONDS` while active and `BADGE_WATCH_IDLE_POLL_SECONDS` when idle.
 
 ## Focus Bridge
 
@@ -136,9 +150,9 @@ Get-Content "$env:LOCALAPPDATA\WslPrivate\launchers\focus-watch.log" -Tail 60
 
 Working behavior:
 
-- `focus-watch.ps1` polls the Windows foreground title. If the title contains `WeChat Desktop`, it focuses WeChat inside the nested X display; otherwise it focuses the tiny `wsl-focus-sink` window.
+- `focus-watch.ps1` polls the Windows foreground title in memory. If the title contains `WeChat Desktop`, it focuses WeChat inside the nested X display; otherwise it focuses the tiny `wsl-focus-sink` window.
 - While Windows foreground is not WeChat Desktop, the watcher re-enforces the hidden sink every few seconds so a Linux-side focus steal does not leave WeChat active.
-- The watcher writes `focus-watch.state` with `state=active` or `state=inactive`; the notification daemon only needs this if legacy file-activity notice mode is deliberately re-enabled.
+- The watcher writes `focus-watch.state` with only `timestamp` and `state=active` or `state=inactive`; it must not persist the foreground window title. The notification daemon only needs this if legacy file-activity notice mode is deliberately re-enabled.
 - `wsl-app-focus-bridge --status` should show `active_name=wsl-focus-sink` when Windows foreground is not the WeChat Desktop window.
 - `wechat-desktop` starts the focus watcher automatically; `wechat-desktop-stop` stops it.
 
@@ -181,9 +195,21 @@ Unified bidirectional watcher helpers:
 
 `clipboard-watch.ps1` is the only automatic watcher. It preserves Windows-to-Linux image/file sync via `winclip2wechat` and also polls the nested X11 clipboard for Linux-to-Windows text sync via `wechatclip2win --probe`. It initializes the Linux clipboard hash on startup so it does not immediately overwrite the Windows clipboard with stale Linux content. It intentionally logs only byte/character counts and hashes, not clipboard contents.
 
-`wechat-desktop` starts the unified clipboard watcher automatically when the Windows helper exists, so the normal start command restores clipboard sync after reboot or app restart.
+`wechat-desktop` starts the unified clipboard watcher automatically when the Windows helper exists and `CLIPBOARD_WATCH_ENABLED` is not disabled, so the normal start command restores clipboard sync after reboot or app restart. `wechat-desktop-stop` stops it to avoid orphan Windows polling after the nested desktop exits.
+
+Clipboard payload files live under a private runtime/cache directory such as `$XDG_RUNTIME_DIR/wsl-wechat-bridge` or `~/.cache/wechat-desktop/runtime/wsl-wechat-bridge`. They are mode-restricted and expire according to `WSL_WECHAT_CLIPBOARD_TTL_SECONDS`. `winclip2wechat` prints file paths only when `WSL_WECHAT_VERBOSE_CLIPBOARD=1` is set.
 
 `wechatclip2win --watch` should not be used as a separate watcher. The `start-linux-clipboard-watch-hidden.vbs` and `stop-linux-clipboard-watch.cmd` helpers remain only as compatibility aliases to the unified watcher.
+
+## Stop Semantics
+
+Normal `wechat-desktop-stop` sends `SIGTERM` and returns non-zero if matching processes survive. `--force` is required for `SIGKILL`. PID files are used only after command-line validation, and the notification daemon PID is included in dry-run and stop matching.
+
+Windows `stop-focus-watch.cmd` and `stop-clipboard-watch.cmd` also validate that the PID-file process command line matches the expected watcher before stopping it.
+
+## Logs
+
+Linux and Windows helper logs rotate by default at 5 MB with two backups. Logs should contain operational metadata only: counts, byte sizes, hashes, PIDs, states, and launch outcomes.
 
 ## User Docs
 

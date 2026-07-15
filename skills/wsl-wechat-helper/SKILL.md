@@ -16,7 +16,7 @@ This is a local maintenance skill, not a generic public installer. Prefer preser
 1. Inspect current status before changing anything:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\wsl-wechat-helper\scripts\collect-status.ps1"
+powershell -ExecutionPolicy Bypass -File .\skills\wsl-wechat-helper\scripts\collect-status.ps1 -Distro Ubuntu-22.04
 ```
 
 For public repo installs, also prefer the project doctor when available:
@@ -36,6 +36,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Distro Ubuntu-22.
 - Keep helper scripts under `%LOCALAPPDATA%\WslPrivate\launchers` when Windows-side launchers are needed.
 - Do not stop the active WeChat session unless the user asks to close it, the task is specifically about stuck processes, or a restart is necessary and clearly explained.
 - Avoid broad `pkill -f` cleanup patterns. Prefer installed commands such as `wechat-desktop-stop` or exact process matching.
+- Preserve privacy defaults: logs should record counts, sizes, hashes, PIDs, and states, not clipboard contents, Windows foreground titles, D-Bus notification summaries/bodies, or Windows file paths.
+- Treat `BADGE_WATCH_ENABLED=0` as the default healthy state; the unread badge screenshot watcher is opt-in because it periodically captures the WeChat window.
+- Normal `wechat-desktop-stop` should use graceful termination and report survivors. Use `--force` only when the user accepts `SIGKILL`.
 - Treat the WSL message `localhost proxy ... NAT mode ...` as benign unless the user asks about networking.
 
 ## Common Tasks
@@ -55,6 +58,8 @@ wsl -d Ubuntu-22.04 -- wechat-desktop-stop
 wsl -d Ubuntu-22.04 -- wechat-desktop-stop --force
 ```
 
+`wechat-desktop-status` also reports runtime config defaults such as `badge_watch_enabled`, log rotation limits, and clipboard temporary payload TTL.
+
 ### Notification Bridge
 
 The notification bridge should flash the Windows taskbar entry for the nested WeChat Desktop window. The small Windows popup is optional and is disabled by default; the widget's `消息弹窗` checkbox writes `%LOCALAPPDATA%\WslPrivate\launchers\settings.json` with `NoticePopupEnabled`. The bridge primarily trusts WeChat's own notification signals: X11 window changes and a small `org.freedesktop.Notifications` D-Bus daemon on the same session bus as WeChat. A file-activity watcher still logs WeChat message/session storage changes for diagnosis, but it is `log-only` by default and must not send Windows notices by default; this avoids muted groups, service accounts, official accounts, and other silent sync activity causing noisy alerts.
@@ -69,7 +74,9 @@ wsl -d Ubuntu-22.04 -- wsl-app-notify-bridge-restart
 
 If `--test` logs the request but no taskbar flash appears, read `references/troubleshooting.md` before editing scripts. A missing popup is expected when `NoticePopupEnabled` is false. The working bridge uses a Windows PowerShell `Start-Process` parent command and passes the helper path via `WSLENV=WSL_NOTICE_HELPER`.
 
-If manual `--test` works but real messages do not, check `wsl-app-notify-bridge --status` and `~/.cache/wechat-desktop/notification-daemon.log`. Real alerts should normally show as `dbus-notify`, X11 attention/title signals, or new WeChat windows. `file-activity` alone is diagnostic in the default `log-only` mode and should not be treated as a user-facing alert.
+If manual `--test` works but real messages do not, check `wsl-app-notify-bridge --status` and `~/.cache/wechat-desktop/notification-daemon.log`. Real alerts should normally show as `dbus-notify`, X11 attention/title signals, or new WeChat windows. `file-activity` alone is diagnostic in the default `log-only` mode and should not be treated as a user-facing alert. D-Bus logs intentionally use lengths and hashes instead of notification summary/body text.
+
+The experimental unread badge watcher can be enabled with `BADGE_WATCH_ENABLED=1` in `~/.config/wsl-wechat-bridge/config`. Leave it disabled by default unless the user explicitly wants the extra screenshot-based fallback.
 
 ### Focus Bridge
 
@@ -106,6 +113,8 @@ The widget also shows the unified clipboard watcher status with a green/yellow i
 `start-clipboard-watch-hidden.vbs` starts the single unified bidirectional watcher: Windows image/file clipboard to Linux WeChat, and Linux WeChat/X11 text clipboard to Windows. Do not start `wechatclip2win --watch` as a separate watcher.
 
 `wechat-desktop` also starts this unified clipboard watcher automatically when the helper is present, so the user's normal start command should restore clipboard sync after reboot or app restart.
+
+Clipboard payload files are temporary. They live under a private runtime/cache directory, are written with restricted permissions, and expire according to `WSL_WECHAT_CLIPBOARD_TTL_SECONDS` (default 3600). `winclip2wechat` does not print Windows file paths unless `WSL_WECHAT_VERBOSE_CLIPBOARD=1` is set for debugging.
 
 ### Chinese Input Method
 

@@ -6,7 +6,9 @@ screen="${WECHAT_DESKTOP_SIZE:-1200x800}"
 state_dir="$HOME/.cache/wechat-desktop"
 config_file="${XDG_CONFIG_HOME:-$HOME/.config}/wsl-wechat-bridge/config"
 mkdir -p "$state_dir"
+chmod 700 "$state_dir" 2>/dev/null || true
 printf '%s\n' "$display" >"$state_dir/display"
+uid="$(id -u)"
 
 read_config_value() {
   local key="$1" line value
@@ -28,6 +30,64 @@ read_config_value() {
   done <"$config_file"
 
   return 1
+}
+
+config_value() {
+  local key="$1" default="${2:-}" value
+  value="$(printenv "$key" 2>/dev/null || true)"
+  if [ -n "$value" ]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+
+  if value="$(read_config_value "$key" 2>/dev/null)"; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+
+  printf '%s\n' "$default"
+}
+
+config_truthy() {
+  local key="$1" default="${2:-0}" value
+  value="$(config_value "$key" "$default")"
+  case "$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on|enabled) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+positive_int() {
+  local value="$1" default="$2"
+  case "$value" in
+    ''|*[!0-9]*) printf '%s\n' "$default" ;;
+    0) printf '%s\n' "$default" ;;
+    *) printf '%s\n' "$value" ;;
+  esac
+}
+
+log_max_bytes="$(positive_int "$(config_value WSL_WECHAT_LOG_MAX_BYTES "${WSL_WECHAT_LOG_MAX_BYTES:-}")" 5242880)"
+log_backups="$(positive_int "$(config_value WSL_WECHAT_LOG_BACKUPS "${WSL_WECHAT_LOG_BACKUPS:-}")" 2)"
+clipboard_ttl_seconds="$(positive_int "$(config_value WSL_WECHAT_CLIPBOARD_TTL_SECONDS "${WSL_WECHAT_CLIPBOARD_TTL_SECONDS:-}")" 3600)"
+export WSL_WECHAT_LOG_MAX_BYTES="$log_max_bytes"
+export WSL_WECHAT_LOG_BACKUPS="$log_backups"
+export WSL_WECHAT_CLIPBOARD_TTL_SECONDS="$clipboard_ttl_seconds"
+
+rotate_log() {
+  local file="$1" i
+  [ "$log_max_bytes" -gt 0 ] || return 0
+  [ "$log_backups" -gt 0 ] || return 0
+  [ -f "$file" ] || return 0
+  [ "$(wc -c <"$file" 2>/dev/null || echo 0)" -lt "$log_max_bytes" ] && return 0
+
+  i=$((log_backups - 1))
+  while [ "$i" -ge 1 ]; do
+    if [ -f "$file.$i" ]; then
+      mv -f "$file.$i" "$file.$((i + 1))" 2>/dev/null || true
+    fi
+    i=$((i - 1))
+  done
+  mv -f "$file" "$file.1" 2>/dev/null || true
 }
 
 resolve_wechat_command() {
@@ -70,6 +130,7 @@ display_num="${display_num%%.*}"
 
 if ! xdpyinfo -display "$display" >/dev/null 2>&1; then
   rm -f "/tmp/.X${display_num}-lock" "/tmp/.X11-unix/X${display_num}" 2>/dev/null || true
+  rotate_log "$state_dir/xephyr.log"
   nohup Xephyr "$display" -screen "$screen" -resizeable -ac -br -title "WeChat Desktop" \
     >"$state_dir/xephyr.log" 2>&1 &
   echo $! >"$state_dir/xephyr.pid"
@@ -105,6 +166,7 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
 fi
 
 if ! ps -p "$(cat "$state_dir/openbox.pid" 2>/dev/null || echo 0)" >/dev/null 2>&1; then
+  rotate_log "$state_dir/openbox.log"
   nohup openbox >"$state_dir/openbox.log" 2>&1 &
   echo $! >"$state_dir/openbox.pid"
   sleep 0.5
@@ -119,6 +181,7 @@ start_panel() {
     return 0
   fi
 
+  rotate_log "$state_dir/tint2.log"
   if [ -r /etc/xdg/tint2/tint2rc ]; then
     nohup tint2 -c /etc/xdg/tint2/tint2rc >"$state_dir/tint2.log" 2>&1 &
   else
@@ -162,6 +225,10 @@ windows_launcher_file() {
 }
 
 start_notice_bridge() {
+  if ! config_truthy NOTICE_BRIDGE_ENABLED "1"; then
+    return 0
+  fi
+
   if ! command -v wsl-app-notify-bridge >/dev/null 2>&1; then
     return 0
   fi
@@ -170,11 +237,18 @@ start_notice_bridge() {
     return 0
   fi
 
+  rotate_log "$state_dir/notice-bridge-start.log"
   nohup wsl-app-notify-bridge >"$state_dir/notice-bridge-start.log" 2>&1 &
   sleep 0.1
 }
 
 start_badge_watch() {
+  local poll_seconds idle_poll_seconds args=()
+
+  if ! config_truthy BADGE_WATCH_ENABLED "0"; then
+    return 0
+  fi
+
   if ! command -v wsl-app-badge-notify-watch >/dev/null 2>&1; then
     return 0
   fi
@@ -183,12 +257,27 @@ start_badge_watch() {
     return 0
   fi
 
-  nohup wsl-app-badge-notify-watch --display "$display" >"$state_dir/badge-notify-watch-start.log" 2>&1 &
+  args=(wsl-app-badge-notify-watch --display "$display")
+  poll_seconds="$(config_value BADGE_WATCH_POLL_SECONDS "")"
+  idle_poll_seconds="$(config_value BADGE_WATCH_IDLE_POLL_SECONDS "")"
+  if [ -n "$poll_seconds" ]; then
+    args+=(--poll-seconds "$poll_seconds")
+  fi
+  if [ -n "$idle_poll_seconds" ]; then
+    args+=(--idle-poll-seconds "$idle_poll_seconds")
+  fi
+
+  rotate_log "$state_dir/badge-notify-watch-start.log"
+  nohup "${args[@]}" >"$state_dir/badge-notify-watch-start.log" 2>&1 &
   sleep 0.1
 }
 
 start_focus_watch() {
   local helper
+  if ! config_truthy FOCUS_WATCH_ENABLED "1"; then
+    return 0
+  fi
+
   helper="$(windows_launcher_file "start-focus-watch-hidden.vbs" || true)"
   if [ ! -f "$helper" ]; then
     return 0
@@ -199,6 +288,10 @@ start_focus_watch() {
 
 start_clipboard_watch() {
   local helper
+  if ! config_truthy CLIPBOARD_WATCH_ENABLED "1"; then
+    return 0
+  fi
+
   helper="$(windows_launcher_file "start-clipboard-watch-hidden.vbs" || true)"
   if [ ! -f "$helper" ]; then
     return 0
@@ -207,13 +300,11 @@ start_clipboard_watch() {
   wscript.exe //B "$(wslpath -w "$helper")" >/dev/null 2>&1 || true
 }
 
-pkill -x fcitx5 2>/dev/null || true
-nohup fcitx5 --disable=wayland --disable=waylandim -d --replace --verbose '*'=0 \
-  >"$state_dir/fcitx5.log" 2>&1 || true
-
-pkill -x wechat 2>/dev/null || true
-pkill -x WeChatAppEx 2>/dev/null || true
-sleep 0.5
+if ! pgrep -u "$uid" -x fcitx5 >/dev/null 2>&1; then
+  rotate_log "$state_dir/fcitx5.log"
+  nohup fcitx5 --disable=wayland --disable=waylandim -d --replace --verbose '*'=0 \
+    >"$state_dir/fcitx5.log" 2>&1 || true
+fi
 
 start_notice_bridge
 start_badge_watch

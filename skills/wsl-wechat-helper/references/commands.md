@@ -17,6 +17,9 @@ powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Distro Ubuntu-22.
 # Stop
 wsl -d Ubuntu-22.04 -- wechat-desktop-stop
 
+# Preview what stop would match
+wsl -d Ubuntu-22.04 -- wechat-desktop-stop --dry-run
+
 # Force stop if WeChat says it is already open or locked
 wsl -d Ubuntu-22.04 -- wechat-desktop-stop --force
 
@@ -60,6 +63,9 @@ wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-watch-hi
 # Unified clipboard watcher log
 Get-Content "$env:LOCALAPPDATA\WslPrivate\launchers\clipboard-watch.log" -Tail 80
 
+# Enable the optional unread badge watcher
+wsl -d Ubuntu-22.04 -- bash -lc "mkdir -p ~/.config/wsl-wechat-bridge; grep -q '^BADGE_WATCH_ENABLED=' ~/.config/wsl-wechat-bridge/config 2>/dev/null && sed -i 's/^BADGE_WATCH_ENABLED=.*/BADGE_WATCH_ENABLED=1/' ~/.config/wsl-wechat-bridge/config || printf 'BADGE_WATCH_ENABLED=1\n' >> ~/.config/wsl-wechat-bridge/config"
+
 # Check Windows file links for direct file sending from Linux WeChat
 wsl -d Ubuntu-22.04 -- bash -lc "ls -ld ~/Windows-* /mnt/c 2>/dev/null"
 ```
@@ -76,12 +82,8 @@ Keep daily command docs short. Put longer explanations in `docs/`.
 ## Diagnostic Commands
 
 ```powershell
-wsl -d Ubuntu-22.04 -- bash -lc "command -v wechat-desktop wechat-desktop-status wechat-desktop-stop wechat-restore winclip2wechat wechatclip2win wsl-app-notify-bridge wsl-app-notify-bridge-restart wsl-app-focus-bridge wsl-focus-sink"
-wsl -d Ubuntu-22.04 -- bash -lc "tail -n 80 ~/.cache/wechat-desktop/notice-bridge.log"
-wsl -d Ubuntu-22.04 -- bash -lc "tail -n 80 ~/.cache/wechat-desktop/notification-daemon.log"
-wsl -d Ubuntu-22.04 -- bash -lc "tail -n 80 ~/.cache/wechat-desktop/focus-bridge.log"
-Get-Content "$env:LOCALAPPDATA\WslPrivate\launchers\focus-watch.log" -Tail 60
-wsl -d Ubuntu-22.04 -- bash -lc "tail -n 80 ~/.cache/wechat-desktop/wechatclip2win.log"
-Get-Content "$env:LOCALAPPDATA\WslPrivate\launchers\notice.log" -Tail 40
+powershell -ExecutionPolicy Bypass -File .\skills\wsl-wechat-helper\scripts\collect-status.ps1 -Distro Ubuntu-22.04
+wsl -d Ubuntu-22.04 -- bash -lc "command -v wechat-desktop wechat-desktop-status wechat-desktop-stop wechat-restore winclip2wechat wechatclip2win wsl-app-notify-bridge wsl-app-notify-bridge-restart wsl-app-notification-daemon wsl-app-badge-notify-watch wsl-app-focus-bridge wsl-focus-sink"
+wsl -d Ubuntu-22.04 -- wechat-desktop-status
 Get-StartApps | Where-Object { $_.Name -match '(?i)wechat|weixin|微信' -or $_.AppID -match '(?i)wechat|weixin|微信' }
 ```

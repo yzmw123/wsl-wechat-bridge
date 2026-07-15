@@ -20,7 +20,37 @@ log_file="$state_dir/notice-bridge.log"
 seen_file="$state_dir/notice-bridge.seen"
 notification_pid_file="$state_dir/notification-daemon.pid"
 
+positive_int() {
+  local value="$1" default="$2"
+  case "$value" in
+    ''|*[!0-9]*) printf '%s\n' "$default" ;;
+    0) printf '%s\n' "$default" ;;
+    *) printf '%s\n' "$value" ;;
+  esac
+}
+
+log_max_bytes="$(positive_int "${WSL_WECHAT_LOG_MAX_BYTES:-}" 5242880)"
+log_backups="$(positive_int "${WSL_WECHAT_LOG_BACKUPS:-}" 2)"
+
+rotate_log() {
+  local file="$1" i
+  [ "$log_max_bytes" -gt 0 ] || return 0
+  [ "$log_backups" -gt 0 ] || return 0
+  [ -f "$file" ] || return 0
+  [ "$(wc -c <"$file" 2>/dev/null || echo 0)" -lt "$log_max_bytes" ] && return 0
+
+  i=$((log_backups - 1))
+  while [ "$i" -ge 1 ]; do
+    if [ -f "$file.$i" ]; then
+      mv -f "$file.$i" "$file.$((i + 1))" 2>/dev/null || true
+    fi
+    i=$((i - 1))
+  done
+  mv -f "$file" "$file.1" 2>/dev/null || true
+}
+
 log() {
+  rotate_log "$log_file"
   printf '%s %s\n' "$(date -Is)" "$*" >>"$log_file"
 }
 
@@ -100,8 +130,14 @@ send_windows_notice() {
 }
 
 is_running_pid() {
-  local pid="${1:-}"
-  [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1
+  local pid="${1:-}" pattern="${2:-}" args
+  [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1 || return 1
+  if [ -n "$pattern" ]; then
+    args="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || ps -p "$pid" -o args= 2>/dev/null || true)"
+    [ -n "$args" ] || return 1
+    printf '%s\n' "$args" | grep -Eq "$pattern" || return 1
+  fi
+  return 0
 }
 
 cleanup_stale_bridges() {
@@ -148,7 +184,7 @@ start_notification_daemon() {
   fi
 
   pid="$(cat "$notification_pid_file" 2>/dev/null || true)"
-  if is_running_pid "$pid"; then
+  if is_running_pid "$pid" "wsl-app-notification-daemon"; then
     return 0
   fi
 
@@ -170,12 +206,12 @@ case "${1:-}" in
     exit 0
     ;;
   --status)
-    if is_running_pid "$(cat "$pid_file" 2>/dev/null || true)"; then
+    if is_running_pid "$(cat "$pid_file" 2>/dev/null || true)" "wsl-app-notify-bridge"; then
       printf 'running pid=%s display=%s\n' "$(cat "$pid_file")" "$display"
     else
       printf 'stopped display=%s\n' "$display"
     fi
-    if is_running_pid "$(cat "$notification_pid_file" 2>/dev/null || true)"; then
+    if is_running_pid "$(cat "$notification_pid_file" 2>/dev/null || true)" "wsl-app-notification-daemon"; then
       printf 'notification_daemon=running pid=%s\n' "$(cat "$notification_pid_file")"
     else
       printf 'notification_daemon=stopped\n'
@@ -190,7 +226,7 @@ case "${1:-}" in
     ;;
 esac
 
-if is_running_pid "$(cat "$pid_file" 2>/dev/null || true)"; then
+if is_running_pid "$(cat "$pid_file" 2>/dev/null || true)" "wsl-app-notify-bridge"; then
   exit 0
 fi
 
@@ -278,7 +314,7 @@ while true; do
 
     title="$(window_title "$id")"
     if [ -n "$title" ] && title_looks_unread "$title"; then
-      maybe_notice "title:$id:$title"
+      maybe_notice "title:$id"
     fi
   done < <(wechat_window_ids)
 
