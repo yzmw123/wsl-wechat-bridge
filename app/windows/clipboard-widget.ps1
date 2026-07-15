@@ -164,6 +164,7 @@ $iconSvgPath = Join-Path $scriptDir "wsl-clip-cube.svg"
 $iconPngPath = Join-Path $scriptDir "wsl-clip-cube.png"
 $iconIcoPath = Join-Path $scriptDir "wsl-clip-cube.ico"
 $iconVersionPath = Join-Path $scriptDir "wsl-clip-cube.icon-v2"
+$settingsPath = Join-Path $scriptDir "settings.json"
 
 $surfaceColor = [System.Drawing.Color]::FromArgb(224, 229, 236)
 $foregroundColor = [System.Drawing.Color]::FromArgb(61, 72, 82)
@@ -178,6 +179,7 @@ $script:PayloadText = ""
 $script:PayloadImage = $null
 $script:PayloadFiles = @()
 $script:SuppressTextChanged = $false
+$script:SuppressNoticePopupChanged = $false
 $script:LastClipboardSequence = [WslClipWidgetNative]::GetClipboardSequenceNumber()
 $script:LastWatchStatusAt = [datetime]::MinValue
 
@@ -187,6 +189,54 @@ function Write-WidgetLog {
         "$(Get-Date -Format o) $Message" | Out-File -LiteralPath $logFile -Encoding UTF8 -Append
     }
     catch {}
+}
+
+function Get-WidgetSettings {
+    $settings = [ordered]@{
+        NoticePopupEnabled = $false
+    }
+
+    try {
+        if (Test-Path -LiteralPath $settingsPath) {
+            $raw = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8
+            if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                $loaded = $raw | ConvertFrom-Json
+                $property = $loaded.PSObject.Properties["NoticePopupEnabled"]
+                if ($null -ne $property) {
+                    $settings.NoticePopupEnabled = [System.Convert]::ToBoolean($property.Value)
+                }
+            }
+        }
+    }
+    catch {
+        Write-WidgetLog "settings_read_error=$($_.Exception.Message)"
+    }
+
+    return $settings
+}
+
+function Save-WidgetSettings {
+    param([System.Collections.IDictionary]$Settings)
+
+    try {
+        [pscustomobject]$Settings |
+            ConvertTo-Json -Depth 4 |
+            Out-File -LiteralPath $settingsPath -Encoding UTF8
+        return $true
+    }
+    catch {
+        Write-WidgetLog "settings_write_error=$($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Set-NoticePopupEnabled {
+    param([bool]$Enabled)
+
+    $settings = Get-WidgetSettings
+    $settings.NoticePopupEnabled = $Enabled
+    $saved = Save-WidgetSettings -Settings $settings
+    return $saved
 }
 
 function New-WidgetIconBitmap {
@@ -670,6 +720,7 @@ function Set-ButtonsEnabled {
     $refreshButton.Enabled = $Enabled
     $syncButton.Enabled = $Enabled
     $pasteButton.Enabled = $Enabled
+    $syncFromWslButton.Enabled = $Enabled
 }
 
 function Invoke-WslClipboardSync {
@@ -706,6 +757,39 @@ function Invoke-WslClipboardSync {
     catch {
         Set-Status "同步失败：$($_.Exception.Message)" ([System.Drawing.Color]::Firebrick)
         Write-WidgetLog "sync_error=$($_.Exception.Message)"
+    }
+    finally {
+        $script:LastClipboardSequence = [WslClipWidgetNative]::GetClipboardSequenceNumber()
+        Set-ButtonsEnabled $true
+    }
+}
+
+function Invoke-WslToWindowsClipboardSync {
+    Set-ButtonsEnabled $false
+    Set-Status "正在同步 WSL 剪切板到 Windows..."
+    [System.Windows.Forms.Application]::DoEvents()
+    try {
+        $output = & wsl.exe -d $Distro -- wechatclip2win 2>&1
+        $exitCode = $LASTEXITCODE
+        $cleanOutput = Remove-NulText -Lines $output
+        $outputBox.Text = ($cleanOutput -join [Environment]::NewLine)
+        if ($exitCode -eq 0) {
+            Read-ClipboardIntoWidget
+            Set-Status "已同步 WSL 剪切板到 Windows" ([System.Drawing.Color]::FromArgb(28, 110, 68))
+            Write-WidgetLog "sync_wsl_to_win_ok distro=$Distro"
+        }
+        elseif ($exitCode -eq 2) {
+            Set-Status "WSL 剪切板没有可同步文本" ([System.Drawing.Color]::Firebrick)
+            Write-WidgetLog "sync_wsl_to_win_empty code=$exitCode"
+        }
+        else {
+            Set-Status "同步 WSL 剪切板失败，退出码 $exitCode" ([System.Drawing.Color]::Firebrick)
+            Write-WidgetLog "sync_wsl_to_win_failed code=$exitCode"
+        }
+    }
+    catch {
+        Set-Status "同步 WSL 剪切板失败：$($_.Exception.Message)" ([System.Drawing.Color]::Firebrick)
+        Write-WidgetLog "sync_wsl_to_win_error=$($_.Exception.Message)"
     }
     finally {
         $script:LastClipboardSequence = [WslClipWidgetNative]::GetClipboardSequenceNumber()
@@ -801,9 +885,8 @@ New-AppIconAssets
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "WSL 剪切板同步"
 $form.StartPosition = "CenterScreen"
-$form.ClientSize = New-Object System.Drawing.Size(540, 720)
-$form.MinimumSize = New-Object System.Drawing.Size(560, 760)
-$form.TopMost = $true
+$form.ClientSize = New-Object System.Drawing.Size(540, 790)
+$form.MinimumSize = New-Object System.Drawing.Size(560, 830)
 $form.KeyPreview = $true
 $form.AllowDrop = $true
 $form.BackColor = $surfaceColor
@@ -844,7 +927,7 @@ $titleLabel.Size = New-Object System.Drawing.Size(250, 30)
 $headerPanel.Controls.Add($titleLabel)
 
 $subtitleLabel = New-Object System.Windows.Forms.Label
-$subtitleLabel.Text = "文字 / 图片 / 文件，一键送进 Linux"
+$subtitleLabel.Text = "Win ↔ WSL 剪切板"
 $subtitleLabel.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
 $subtitleLabel.ForeColor = $mutedColor
 $subtitleLabel.BackColor = [System.Drawing.Color]::Transparent
@@ -852,13 +935,38 @@ $subtitleLabel.Location = New-Object System.Drawing.Point(114, 62)
 $subtitleLabel.Size = New-Object System.Drawing.Size(260, 22)
 $headerPanel.Controls.Add($subtitleLabel)
 
-$topMostButton = New-NeoButton -Text "置顶开" -X 392 -Y 36 -Width 84 -Height 44
-$topMostButton.Add_Click({
-    $form.TopMost = -not $form.TopMost
-    $topMostButton.Text = if ($form.TopMost) { "置顶开" } else { "置顶关" }
-    Set-Status ($(if ($form.TopMost) { "窗口已置顶" } else { "窗口已取消置顶" }))
+$noticeSettings = Get-WidgetSettings
+$noticePopupCheckBox = New-Object System.Windows.Forms.CheckBox
+$noticePopupCheckBox.Text = "消息弹窗"
+$noticePopupCheckBox.Checked = [bool]$noticeSettings.NoticePopupEnabled
+$noticePopupCheckBox.AutoSize = $false
+$noticePopupCheckBox.Location = New-Object System.Drawing.Point(374, 42)
+$noticePopupCheckBox.Size = New-Object System.Drawing.Size(112, 26)
+$noticePopupCheckBox.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
+$noticePopupCheckBox.ForeColor = $foregroundColor
+$noticePopupCheckBox.BackColor = [System.Drawing.Color]::Transparent
+$noticePopupCheckBox.FlatStyle = [System.Windows.Forms.FlatStyle]::Standard
+$noticePopupCheckBox.Add_CheckedChanged({
+    if ($script:SuppressNoticePopupChanged) { return }
+
+    $enabled = [bool]$noticePopupCheckBox.Checked
+    if (Set-NoticePopupEnabled -Enabled $enabled) {
+        if ($enabled) {
+            Set-Status "消息弹窗已开启" ([System.Drawing.Color]::FromArgb(28, 110, 68))
+        }
+        else {
+            Set-Status "消息弹窗已关闭，仅保留任务栏闪烁" ([System.Drawing.Color]::FromArgb(133, 77, 14))
+        }
+        Write-WidgetLog "notice_popup_enabled=$enabled"
+    }
+    else {
+        $script:SuppressNoticePopupChanged = $true
+        $noticePopupCheckBox.Checked = -not $enabled
+        $script:SuppressNoticePopupChanged = $false
+        Set-Status "消息弹窗设置保存失败" ([System.Drawing.Color]::Firebrick)
+    }
 })
-$headerPanel.Controls.Add($topMostButton)
+$headerPanel.Controls.Add($noticePopupCheckBox)
 
 $startButton = New-NeoButton -Text "启动应用" -X 18 -Y 150 -Width 246 -Height 54 -Fill $accentColor -TextColor ([System.Drawing.Color]::White)
 $startButton.Add_Click({ Invoke-WeChatStart })
@@ -963,7 +1071,11 @@ $pasteButton = New-NeoButton -Text "同步并粘贴" -X 364 -Y 524 -Width 158 -H
 $pasteButton.Add_Click({ Invoke-WslClipboardSync -Paste })
 $form.Controls.Add($pasteButton)
 
-$outputPanel = New-NeoPanel -X 18 -Y 590 -Width 504 -Height 86 -Radius 24 -Inset
+$syncFromWslButton = New-NeoButton -Text "同步 WSL 剪切板" -X 18 -Y 586 -Width 246 -Height 50 -Fill $successColor -TextColor ([System.Drawing.Color]::White)
+$syncFromWslButton.Add_Click({ Invoke-WslToWindowsClipboardSync })
+$form.Controls.Add($syncFromWslButton)
+
+$outputPanel = New-NeoPanel -X 18 -Y 652 -Width 504 -Height 86 -Radius 24 -Inset
 $form.Controls.Add($outputPanel)
 
 $outputBox = New-Object System.Windows.Forms.TextBox
@@ -979,9 +1091,9 @@ $outputBox.Size = New-Object System.Drawing.Size(456, 48)
 $outputPanel.Controls.Add($outputBox)
 
 $hintLabel = New-Object System.Windows.Forms.Label
-$hintLabel.Text = "Ctrl+V 或拖文件到窗口；同步后去 Linux 里粘贴。"
+$hintLabel.Text = "Ctrl+V 或拖文件到窗口；按需同步当前方向。"
 $hintLabel.AutoEllipsis = $true
-$hintLabel.Location = New-Object System.Drawing.Point(30, 688)
+$hintLabel.Location = New-Object System.Drawing.Point(30, 756)
 $hintLabel.Size = New-Object System.Drawing.Size(480, 18)
 $hintLabel.ForeColor = $mutedColor
 $hintLabel.BackColor = [System.Drawing.Color]::Transparent

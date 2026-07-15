@@ -37,62 +37,60 @@ def log(message):
         pass
 
 
-def windows_helper_path():
-    local_app_data = ""
+def windows_env_path(name):
     try:
         output = subprocess.check_output(
-            ["cmd.exe", "/C", "echo", "%LOCALAPPDATA%"],
+            ["cmd.exe", "/C", "echo", f"%{name}%"],
             stderr=subprocess.DEVNULL,
             timeout=3,
         )
         value = output.decode("utf-8", errors="ignore").strip()
         if value and "%" not in value:
-            local_app_data = value
-    except Exception:
-        pass
-
-    if local_app_data:
-        try:
-            helper = subprocess.check_output(
-                ["wslpath", "-u", local_app_data + "\\WslPrivate\\launchers\\notice.ps1"],
+            return subprocess.check_output(
+                ["wslpath", "-u", value],
                 stderr=subprocess.DEVNULL,
                 timeout=3,
             ).decode("utf-8", errors="ignore").strip()
-            if helper and os.path.exists(helper):
-                return helper
-        except Exception:
-            pass
+    except Exception:
+        pass
+    return ""
+
+
+def windows_local_app_data():
+    local_app_data = windows_env_path("LOCALAPPDATA")
+    if local_app_data:
+        return local_app_data
+
+    profile = windows_env_path("USERPROFILE")
+    if profile:
+        candidate = os.path.join(profile, "AppData", "Local")
+        if os.path.isdir(candidate):
+            return candidate
+
+    fallback = "/mnt/c/Users/Administrator/AppData/Local"
+    if os.path.isdir(fallback):
+        return fallback
+
+    return ""
+
+
+def windows_helper_path():
+    local_app_data = windows_local_app_data()
+    if not local_app_data:
+        return ""
+
+    helper = os.path.join(local_app_data, "WslPrivate", "launchers", "notice.ps1")
+    if os.path.exists(helper):
+        return helper
 
     return ""
 
 
 def windows_launcher_file(filename):
-    local_app_data = ""
-    try:
-        output = subprocess.check_output(
-            ["cmd.exe", "/C", "echo", "%LOCALAPPDATA%"],
-            stderr=subprocess.DEVNULL,
-            timeout=3,
-        )
-        value = output.decode("utf-8", errors="ignore").strip()
-        if value and "%" not in value:
-            local_app_data = value
-    except Exception:
-        pass
-
-    if local_app_data:
-        try:
-            path = subprocess.check_output(
-                ["wslpath", "-u", local_app_data + "\\WslPrivate\\launchers\\" + filename],
-                stderr=subprocess.DEVNULL,
-                timeout=3,
-            ).decode("utf-8", errors="ignore").strip()
-            if path:
-                return path
-        except Exception:
-            pass
-
-    return ""
+    local_app_data = windows_local_app_data()
+    if not local_app_data:
+        return ""
+    return os.path.join(local_app_data, "WslPrivate", "launchers", filename)
 
 
 def windows_foreground_is_wechat_desktop():

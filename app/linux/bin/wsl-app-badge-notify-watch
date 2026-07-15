@@ -85,24 +85,48 @@ def log(message: str) -> None:
         pass
 
 
-def windows_launcher_file(filename: str) -> str:
+def windows_env_path(name: str) -> str:
     try:
         output = subprocess.check_output(
-            ["cmd.exe", "/C", "echo", "%LOCALAPPDATA%"],
+            ["cmd.exe", "/C", "echo", f"%{name}%"],
             stderr=subprocess.DEVNULL,
             timeout=3,
         )
-        local_app_data = output.decode("utf-8", errors="ignore").strip()
-        if local_app_data and "%" not in local_app_data:
-            path = subprocess.check_output(
-                ["wslpath", "-u", local_app_data + "\\WslPrivate\\launchers\\" + filename],
+        value = output.decode("utf-8", errors="ignore").strip()
+        if value and "%" not in value:
+            return subprocess.check_output(
+                ["wslpath", "-u", value],
                 stderr=subprocess.DEVNULL,
                 timeout=3,
             ).decode("utf-8", errors="ignore").strip()
-            return path
     except Exception:
         pass
     return ""
+
+
+def windows_local_app_data() -> str:
+    local_app_data = windows_env_path("LOCALAPPDATA")
+    if local_app_data:
+        return local_app_data
+
+    profile = windows_env_path("USERPROFILE")
+    if profile:
+        candidate = os.path.join(profile, "AppData", "Local")
+        if os.path.isdir(candidate):
+            return candidate
+
+    fallback = "/mnt/c/Users/Administrator/AppData/Local"
+    if os.path.isdir(fallback):
+        return fallback
+
+    return ""
+
+
+def windows_launcher_file(filename: str) -> str:
+    local_app_data = windows_local_app_data()
+    if not local_app_data:
+        return ""
+    return os.path.join(local_app_data, "WslPrivate", "launchers", filename)
 
 
 def paeth_predictor(left: int, above: int, upper_left: int) -> int:

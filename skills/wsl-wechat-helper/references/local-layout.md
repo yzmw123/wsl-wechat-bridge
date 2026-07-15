@@ -90,6 +90,7 @@ Known helper files:
 - `stop-focus-watch.cmd`
 - `notice.ps1`
 - `notice.log`
+- `settings.json` (local runtime settings, including `NoticePopupEnabled`)
 
 Keep these helpers in the private launcher directory. Avoid creating visible WeChat-named Windows launchers.
 
@@ -107,8 +108,9 @@ Working behavior:
 - `--status` should show both `running ... display=:20` and `notification_daemon=running ...`.
 - `~/.cache/wechat-desktop/notice-bridge.log` should show `launch=start-process`.
 - `~/.cache/wechat-desktop/notification-daemon.log` should show `started ...`, `file-watch started ...`, and `file-notice-mode=log-only`. It shows `dbus-notify ...` when Linux notifications arrive and `file-activity ...` when the diagnostic message/session storage watcher sees activity. In default `log-only` mode, file activity is logged but does not send Windows notices.
-- `%LOCALAPPDATA%\WslPrivate\launchers\notice.log` should show `start`, `flashed=1`, and later `done`.
+- `%LOCALAPPDATA%\WslPrivate\launchers\notice.log` should show `start`, `flashed=1`, `popup=disabled` when popups are off, and later `done`.
 - The helper matches Windows titles containing `WeChat Desktop` or `Ubuntu-22.04`.
+- Message popup windows are disabled by default. The widget's `消息弹窗` checkbox controls `%LOCALAPPDATA%\WslPrivate\launchers\settings.json` and the `NoticePopupEnabled` value; taskbar flashing remains enabled either way.
 - The real Windows taskbar title may look like `[WARN:COPY MODE] WeChat Desktop (Ubuntu-22.04)`.
 
 Implementation gotcha:
@@ -154,7 +156,7 @@ Manual Windows widget:
 wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-widget-hidden.vbs"
 ```
 
-The widget previews or edits Windows clipboard payloads, then calls `winclip2wechat` to write the selected payload into the Linux/X11 clipboard. It also has `启动应用` and `关闭应用` buttons for `wechat-desktop` and `wechat-desktop-stop`, plus a green/yellow unified clipboard watcher status and status-aware `启动监听` / `停止监听` button. A desktop shortcut named `WSL剪切板同步.lnk` may point to this VBS launcher and use `wsl-clip-cube.ico`.
+The widget previews or edits Windows clipboard payloads, then calls `winclip2wechat` to write the selected payload into the Linux/X11 clipboard. It also has a manual WSL-to-Windows text sync button that calls `wechatclip2win`, `启动应用` and `关闭应用` buttons for `wechat-desktop` and `wechat-desktop-stop`, plus a green/yellow unified clipboard watcher status and status-aware `启动监听` / `停止监听` button. A desktop shortcut named `WSL剪切板同步.lnk` may point to this VBS launcher and use `wsl-clip-cube.ico`.
 
 The widget icon uses a multi-size ICO generated from `clipboard-widget.ps1`; the shortcut should use an absolute `IconLocation`, not `%USERPROFILE%...`. The WinForms process sets an explicit AppUserModelID and sends both small and big window icons so the Windows taskbar does not fall back to a blank PowerShell/script placeholder.
 

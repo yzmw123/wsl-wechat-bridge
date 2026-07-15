@@ -20,7 +20,8 @@ wsl -d Ubuntu-22.04 -- wechat-desktop-stop
 # Force stop if WeChat says it is already open or locked
 wsl -d Ubuntu-22.04 -- wechat-desktop-stop --force
 
-# Test Windows notification popup and taskbar flash
+# Test Windows notification helper. Default behavior is taskbar flash only;
+# popup appears only when NoticePopupEnabled=true in settings.json.
 wsl -d Ubuntu-22.04 -- wsl-app-notify-bridge --test
 
 # Restart notification bridge

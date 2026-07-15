@@ -25,7 +25,7 @@ log() {
 }
 
 windows_helper_path() {
-  local localapp candidate
+  local localapp profile candidate
 
   localapp="$(cmd.exe /C echo %LOCALAPPDATA% 2>/dev/null | tr -d '\r' || true)"
   if [ -n "$localapp" ] && [[ "$localapp" != *%* ]]; then
@@ -34,6 +34,21 @@ windows_helper_path() {
       printf '%s\n' "$candidate"
       return 0
     fi
+  fi
+
+  profile="$(cmd.exe /C echo %USERPROFILE% 2>/dev/null | tr -d '\r' || true)"
+  if [ -n "$profile" ] && [[ "$profile" != *%* ]]; then
+    candidate="$(wslpath -u "${profile}\\AppData\\Local\\WslPrivate\\launchers\\notice.ps1" 2>/dev/null || true)"
+    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  candidate="/mnt/c/Users/Administrator/AppData/Local/WslPrivate/launchers/notice.ps1"
+  if [ -f "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
   fi
 
   printf ''

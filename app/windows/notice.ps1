@@ -25,6 +25,7 @@ if ([string]::IsNullOrWhiteSpace($Body)) {
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $LogFile = Join-Path $ScriptDir "notice.log"
+$SettingsFile = Join-Path $ScriptDir "settings.json"
 
 function Write-NoticeLog {
     param([string]$Message)
@@ -34,6 +35,31 @@ function Write-NoticeLog {
     }
     catch {
         # Logging is best-effort only.
+    }
+}
+
+function Get-NoticePopupEnabled {
+    try {
+        if (-not (Test-Path -LiteralPath $SettingsFile)) {
+            return $false
+        }
+
+        $raw = Get-Content -LiteralPath $SettingsFile -Raw -Encoding UTF8
+        if ([string]::IsNullOrWhiteSpace($raw)) {
+            return $false
+        }
+
+        $settings = $raw | ConvertFrom-Json
+        $property = $settings.PSObject.Properties["NoticePopupEnabled"]
+        if ($null -eq $property) {
+            return $false
+        }
+
+        return [System.Convert]::ToBoolean($property.Value)
+    }
+    catch {
+        Write-NoticeLog "settings_read_error=$($_.Exception.Message)"
+        return $false
     }
 }
 
@@ -132,6 +158,27 @@ function Show-NoticeWindow {
 
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
+    Add-Type -ReferencedAssemblies @("System.Windows.Forms", "System.Drawing", "System.ComponentModel.Primitives") -TypeDefinition @"
+using System;
+using System.Windows.Forms;
+
+public class WslNoActivateNoticeForm : Form {
+    protected override bool ShowWithoutActivation {
+        get { return true; }
+    }
+
+    protected override CreateParams CreateParams {
+        get {
+            const int WS_EX_TOPMOST = 0x00000008;
+            const int WS_EX_TOOLWINDOW = 0x00000080;
+            const int WS_EX_NOACTIVATE = 0x08000000;
+            CreateParams cp = base.CreateParams;
+            cp.ExStyle |= WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+            return cp;
+        }
+    }
+}
+"@
 
     [System.Windows.Forms.Application]::EnableVisualStyles()
 
@@ -140,7 +187,7 @@ function Show-NoticeWindow {
     $height = 118
     $margin = 18
 
-    $form = New-Object System.Windows.Forms.Form
+    $form = New-Object WslNoActivateNoticeForm
     $form.Text = $NoticeTitle
     $form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
     $form.Size = New-Object System.Drawing.Size($width, $height)
@@ -179,27 +226,25 @@ function Show-NoticeWindow {
     $form.Add_Shown({
         try { [System.Media.SystemSounds]::Information.Play() } catch {}
         $timer.Start()
-        $form.Activate()
     })
 
-    [void]$form.ShowDialog()
+    [System.Windows.Forms.Application]::Run($form)
     $timer.Dispose()
     $form.Dispose()
 }
 
 try {
-    Write-NoticeLog "start title=$Title body=$Body"
+    $popupEnabled = Get-NoticePopupEnabled
+    Write-NoticeLog "start title=$Title body=$Body popup=$popupEnabled"
     Flash-TargetWindow -WindowTitle $FlashTitle
-    Show-NoticeWindow -NoticeTitle $Title -NoticeBody $Body -TimeoutMs $DurationMs
+    if ($popupEnabled) {
+        Show-NoticeWindow -NoticeTitle $Title -NoticeBody $Body -TimeoutMs $DurationMs
+    }
+    else {
+        Write-NoticeLog "popup=disabled"
+    }
     Write-NoticeLog "done"
 }
 catch {
     Write-NoticeLog "error=$($_.Exception.Message)"
-    try {
-        Add-Type -AssemblyName System.Windows.Forms
-        [System.Windows.Forms.MessageBox]::Show($Body, $Title, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
-    }
-    catch {
-        Write-NoticeLog "fallback_error=$($_.Exception.Message)"
-    }
 }

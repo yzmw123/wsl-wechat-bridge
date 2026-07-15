@@ -132,15 +132,30 @@ start_panel
 
 windows_launcher_file() {
   local filename="$1"
-  local localapp candidate
+  local localapp profile candidate
 
   localapp="$(cmd.exe /C echo %LOCALAPPDATA% 2>/dev/null | tr -d '\r' || true)"
   if [ -n "$localapp" ] && [[ "$localapp" != *%* ]]; then
     candidate="$(wslpath -u "${localapp}\\WslPrivate\\launchers\\${filename}" 2>/dev/null || true)"
-    if [ -n "$candidate" ]; then
+    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
       printf '%s\n' "$candidate"
       return 0
     fi
+  fi
+
+  profile="$(cmd.exe /C echo %USERPROFILE% 2>/dev/null | tr -d '\r' || true)"
+  if [ -n "$profile" ] && [[ "$profile" != *%* ]]; then
+    candidate="$(wslpath -u "${profile}\\AppData\\Local\\WslPrivate\\launchers\\${filename}" 2>/dev/null || true)"
+    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  fi
+
+  candidate="/mnt/c/Users/Administrator/AppData/Local/WslPrivate/launchers/${filename}"
+  if [ -f "$candidate" ]; then
+    printf '%s\n' "$candidate"
+    return 0
   fi
 
   return 1

@@ -34,7 +34,7 @@ Get-ChildItem -LiteralPath $launcherSource -File -Force | ForEach-Object {
 function ConvertTo-WslPath {
     param([string]$WindowsPath)
     $resolved = (Resolve-Path -LiteralPath $WindowsPath).Path
-    $converted = & wsl.exe -d $Distro -- wslpath -u $resolved
+    $converted = & wsl.exe -d $Distro --exec wslpath -u $resolved
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($converted)) {
         throw "Could not convert Windows path to WSL path: $WindowsPath"
     }
@@ -93,6 +93,7 @@ $linuxSourceQuoted = Quote-Bash $linuxSourceWsl
 $installCommand = @"
 set -e
 for file in $linuxSourceQuoted/*; do
+  [ -f "`$file" ] || continue
   sudo install -m 755 "`$file" /usr/local/bin/
 done
 "@
@@ -140,7 +141,14 @@ fi
 
 if (-not $NoDesktopShortcut) {
     $shortcutPath = Join-Path ([Environment]::GetFolderPath("Desktop")) "WSL剪切板同步.lnk"
-    $targetPath = Join-Path $env:WINDIR "System32\wscript.exe"
+    $windowsDir = $env:WINDIR
+    if ([string]::IsNullOrWhiteSpace($windowsDir)) {
+        $windowsDir = $env:SystemRoot
+    }
+    if ([string]::IsNullOrWhiteSpace($windowsDir)) {
+        $windowsDir = "C:\Windows"
+    }
+    $targetPath = Join-Path $windowsDir "System32\wscript.exe"
     $widgetLauncher = Join-Path $InstallRoot "start-clipboard-widget-hidden.vbs"
     $iconPath = Join-Path $InstallRoot "wsl-clip-cube.ico"
 

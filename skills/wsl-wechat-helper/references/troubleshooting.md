@@ -10,7 +10,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.codex\skills\wsl-wec
 
 Then use targeted commands from `commands.md`.
 
-## Notification Test Does Not Show Anything
+## Notification Test Does Not Flash Taskbar
 
 Run:
 
@@ -24,8 +24,10 @@ Expected:
 
 - Bridge log includes `notify reason=manual-test`.
 - Bridge log includes `launch=start-process`.
-- Windows helper log includes `start`, `flashed=1`, and `done`.
+- Windows helper log includes `start`, `flashed=1`, `popup=disabled` when popups are off, and `done`.
 - `wsl-app-notify-bridge --status` includes `notification_daemon=running`.
+
+The popup is disabled by default. Enable it from the widget's `消息弹窗` checkbox only when a visible popup is wanted; taskbar flashing should work regardless.
 
 If bridge logs `notify` but the Windows log does not update:
 
@@ -35,7 +37,7 @@ If bridge logs `notify` but the Windows log does not update:
 - Avoid plain backgrounded `powershell.exe ... &` from WSL for GUI helpers; it can die with the short WSL command.
 - Avoid relying on `powershell.exe -Command 'param(...)'` for the helper path; Windows PowerShell may not bind the path the way Bash callers expect.
 
-If popup appears but no taskbar flash:
+If popup is enabled and appears but no taskbar flash:
 
 - Check the Windows window title. The title can include `[WARN:COPY MODE]`.
 - `notice.ps1` should match title substrings such as `WeChat Desktop` and `Ubuntu-22.04`, not an exact title only.
