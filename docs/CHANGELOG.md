@@ -4,6 +4,9 @@ This file tracks repository changes made by agents. Keep entries short and appen
 
 ## 2026-07-15
 
+- Replaced the README update-record link with a concise public-facing 2026-07-15 summary of the day's changes.
+- Verification: `git diff --check`.
+
 - Added a `README.md` update-record section linking to `docs/CHANGELOG.md` so users can find the full maintenance history from the project landing page.
 - Verification: `git diff --check`.
 
