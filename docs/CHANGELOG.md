@@ -4,6 +4,10 @@ This file tracks repository changes made by agents. Keep entries short and appen
 
 ## 2026-07-15
 
+- Updated the Windows clipboard widget to remove the `读取剪切板` and `同步并粘贴` buttons, rename the Linux-to-Windows action to `读取WSL剪切板`, and add a visible `运行状态` page for watcher status and recent output.
+- Updated README, architecture, install prompt, and WSL helper reference docs to match the two-page widget layout and new button labels.
+- Verification: PowerShell parser check for `app/windows/clipboard-widget.ps1`, `scripts/doctor.ps1 -Distro Ubuntu-22.04`, and `git diff --check`.
+
 - Fixed P0-P2 hardening across privacy, process lifecycle, resource use, and diagnostics: logs now rotate, focus/notification logs avoid foreground titles and notification text, clipboard payloads use private temporary storage, normal stop no longer sends `SIGKILL`, notification daemon PIDs are included, PID-file stops validate command lines, and the unread badge watcher is opt-in with adaptive polling.
 - Added runtime configuration/status for helper toggles, log rotation, clipboard TTL, and badge watcher polling; updated README, architecture docs, agent prompt, and WSL helper references to match.
 - Deployed the refreshed helpers to `/usr/local/bin` and `%LOCALAPPDATA%\WslPrivate\launchers`, restarted only helper watchers/notification bridge, and stopped the old badge watcher without stopping WeChat.

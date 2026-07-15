@@ -59,7 +59,7 @@ If users can launch Linux WeChat but cannot type Chinese, check the input packag
 
 ## Components
 
-- `clipboard-widget.ps1`: WinForms desktop widget for manual clipboard preview and sync.
+- `clipboard-widget.ps1`: WinForms desktop widget for manual clipboard preview, sync, and runtime status.
 - `clipboard-watch.ps1`: unified automatic clipboard watcher.
 - `winclip2wechat`: writes Windows clipboard text, image, or file URI payloads to the Linux clipboard.
 - `wechatclip2win`: copies nested X11 text clipboard back to Windows.

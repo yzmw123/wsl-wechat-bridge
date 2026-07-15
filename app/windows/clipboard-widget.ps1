@@ -182,6 +182,12 @@ $script:SuppressTextChanged = $false
 $script:SuppressNoticePopupChanged = $false
 $script:LastClipboardSequence = [WslClipWidgetNative]::GetClipboardSequenceNumber()
 $script:LastWatchStatusAt = [datetime]::MinValue
+$script:ActiveWidgetPage = "clipboard"
+$script:ClipboardPageButton = $null
+$script:RuntimePageButton = $null
+$script:ClipboardPagePanel = $null
+$script:RuntimePagePanel = $null
+$script:RuntimeStatusLabel = $null
 
 function Get-PositiveIntSetting {
     param(
@@ -474,6 +480,59 @@ function Set-Status {
     )
     $statusLabel.Text = $Message
     $statusLabel.ForeColor = $Color
+    if ($script:RuntimeStatusLabel) {
+        $script:RuntimeStatusLabel.Text = $Message
+        $script:RuntimeStatusLabel.ForeColor = $Color
+    }
+}
+
+function Set-WidgetPage {
+    param(
+        [ValidateSet("clipboard", "runtime")]
+        [string]$Page
+    )
+
+    $script:ActiveWidgetPage = $Page
+
+    if ($script:ClipboardPagePanel) {
+        $script:ClipboardPagePanel.Visible = ($Page -eq "clipboard")
+    }
+    if ($script:RuntimePagePanel) {
+        $script:RuntimePagePanel.Visible = ($Page -eq "runtime")
+    }
+    if ($Page -eq "clipboard" -and $script:ClipboardPagePanel) {
+        $script:ClipboardPagePanel.BringToFront()
+    }
+    if ($Page -eq "runtime" -and $script:RuntimePagePanel) {
+        $script:RuntimePagePanel.BringToFront()
+    }
+    if ($Page -eq "runtime") {
+        Update-ClipboardWatcherStatus
+    }
+
+    if ($script:ClipboardPageButton) {
+        if ($Page -eq "clipboard") {
+            $script:ClipboardPageButton.FillColor = $accentColor
+            $script:ClipboardPageButton.TextColor = [System.Drawing.Color]::White
+        }
+        else {
+            $script:ClipboardPageButton.FillColor = $surfaceColor
+            $script:ClipboardPageButton.TextColor = $foregroundColor
+        }
+        $script:ClipboardPageButton.Invalidate()
+    }
+
+    if ($script:RuntimePageButton) {
+        if ($Page -eq "runtime") {
+            $script:RuntimePageButton.FillColor = $successColor
+            $script:RuntimePageButton.TextColor = [System.Drawing.Color]::White
+        }
+        else {
+            $script:RuntimePageButton.FillColor = $surfaceColor
+            $script:RuntimePageButton.TextColor = $foregroundColor
+        }
+        $script:RuntimePageButton.Invalidate()
+    }
 }
 
 function Test-ClipboardWatcherPid {
@@ -770,9 +829,7 @@ function Restore-PayloadToWindowsClipboard {
 
 function Set-ButtonsEnabled {
     param([bool]$Enabled)
-    $refreshButton.Enabled = $Enabled
     $syncButton.Enabled = $Enabled
-    $pasteButton.Enabled = $Enabled
     $syncFromWslButton.Enabled = $Enabled
 }
 
@@ -819,7 +876,7 @@ function Invoke-WslClipboardSync {
 
 function Invoke-WslToWindowsClipboardSync {
     Set-ButtonsEnabled $false
-    Set-Status "正在同步 WSL 剪切板到 Windows..."
+    Set-Status "正在读取 WSL 剪切板到 Windows..."
     [System.Windows.Forms.Application]::DoEvents()
     try {
         $output = & wsl.exe -d $Distro -- wechatclip2win 2>&1
@@ -828,7 +885,7 @@ function Invoke-WslToWindowsClipboardSync {
         $outputBox.Text = ($cleanOutput -join [Environment]::NewLine)
         if ($exitCode -eq 0) {
             Read-ClipboardIntoWidget
-            Set-Status "已同步 WSL 剪切板到 Windows" ([System.Drawing.Color]::FromArgb(28, 110, 68))
+            Set-Status "已读取 WSL 剪切板到 Windows" ([System.Drawing.Color]::FromArgb(28, 110, 68))
             Write-WidgetLog "sync_wsl_to_win_ok distro=$Distro"
         }
         elseif ($exitCode -eq 2) {
@@ -836,12 +893,12 @@ function Invoke-WslToWindowsClipboardSync {
             Write-WidgetLog "sync_wsl_to_win_empty code=$exitCode"
         }
         else {
-            Set-Status "同步 WSL 剪切板失败，退出码 $exitCode" ([System.Drawing.Color]::Firebrick)
+            Set-Status "读取 WSL 剪切板失败，退出码 $exitCode" ([System.Drawing.Color]::Firebrick)
             Write-WidgetLog "sync_wsl_to_win_failed code=$exitCode"
         }
     }
     catch {
-        Set-Status "同步 WSL 剪切板失败：$($_.Exception.Message)" ([System.Drawing.Color]::Firebrick)
+        Set-Status "读取 WSL 剪切板失败：$($_.Exception.Message)" ([System.Drawing.Color]::Firebrick)
         Write-WidgetLog "sync_wsl_to_win_error=$($_.Exception.Message)"
     }
     finally {
@@ -1021,16 +1078,41 @@ $noticePopupCheckBox.Add_CheckedChanged({
 })
 $headerPanel.Controls.Add($noticePopupCheckBox)
 
-$startButton = New-NeoButton -Text "启动应用" -X 18 -Y 150 -Width 246 -Height 54 -Fill $accentColor -TextColor ([System.Drawing.Color]::White)
+$clipboardPageButton = New-NeoButton -Text "剪贴板" -X 112 -Y 88 -Width 122 -Height 24
+$clipboardPageButton.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8.5, [System.Drawing.FontStyle]::Bold)
+$clipboardPageButton.Add_Click({ Set-WidgetPage -Page "clipboard" })
+$headerPanel.Controls.Add($clipboardPageButton)
+$script:ClipboardPageButton = $clipboardPageButton
+
+$runtimePageButton = New-NeoButton -Text "运行状态" -X 240 -Y 88 -Width 128 -Height 24 -Fill $surfaceColor
+$runtimePageButton.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8.5, [System.Drawing.FontStyle]::Bold)
+$runtimePageButton.Add_Click({ Set-WidgetPage -Page "runtime" })
+$headerPanel.Controls.Add($runtimePageButton)
+$script:RuntimePageButton = $runtimePageButton
+
+$script:ClipboardPagePanel = New-Object System.Windows.Forms.Panel
+$script:ClipboardPagePanel.BackColor = $surfaceColor
+$script:ClipboardPagePanel.Location = New-Object System.Drawing.Point(0, 150)
+$script:ClipboardPagePanel.Size = New-Object System.Drawing.Size(540, 624)
+$form.Controls.Add($script:ClipboardPagePanel)
+
+$script:RuntimePagePanel = New-Object System.Windows.Forms.Panel
+$script:RuntimePagePanel.BackColor = $surfaceColor
+$script:RuntimePagePanel.Location = New-Object System.Drawing.Point(0, 150)
+$script:RuntimePagePanel.Size = New-Object System.Drawing.Size(540, 624)
+$script:RuntimePagePanel.Visible = $false
+$form.Controls.Add($script:RuntimePagePanel)
+
+$startButton = New-NeoButton -Text "启动应用" -X 18 -Y 0 -Width 246 -Height 54 -Fill $accentColor -TextColor ([System.Drawing.Color]::White)
 $startButton.Add_Click({ Invoke-WeChatStart })
-$form.Controls.Add($startButton)
+$script:ClipboardPagePanel.Controls.Add($startButton)
 
-$stopButton = New-NeoButton -Text "关闭应用" -X 276 -Y 150 -Width 246 -Height 54
+$stopButton = New-NeoButton -Text "关闭应用" -X 276 -Y 0 -Width 246 -Height 54
 $stopButton.Add_Click({ Invoke-WeChatStop })
-$form.Controls.Add($stopButton)
+$script:ClipboardPagePanel.Controls.Add($stopButton)
 
-$watchPanel = New-NeoPanel -X 18 -Y 216 -Width 354 -Height 52 -Radius 22 -Inset
-$form.Controls.Add($watchPanel)
+$watchPanel = New-NeoPanel -X 18 -Y 106 -Width 354 -Height 52 -Radius 22 -Inset
+$script:RuntimePagePanel.Controls.Add($watchPanel)
 
 $watchDotLabel = New-Object System.Windows.Forms.Label
 $watchDotLabel.Text = "●"
@@ -1052,22 +1134,50 @@ $watchStatusLabel.ForeColor = $mutedColor
 $watchStatusLabel.BackColor = [System.Drawing.Color]::Transparent
 $watchPanel.Controls.Add($watchStatusLabel)
 
-$watchStartButton = New-NeoButton -Text "启动监听" -X 392 -Y 220 -Width 130 -Height 44
+$watchStartButton = New-NeoButton -Text "启动监听" -X 392 -Y 110 -Width 130 -Height 44
 $watchStartButton.Radius = 14
 $watchStartButton.Add_Click({ Invoke-ClipboardWatcherToggle })
-$form.Controls.Add($watchStartButton)
+$script:RuntimePagePanel.Controls.Add($watchStartButton)
 
 $statusLabel = New-Object System.Windows.Forms.Label
-$statusLabel.Text = "正在读取剪切板..."
+$statusLabel.Text = "准备就绪"
 $statusLabel.AutoEllipsis = $true
-$statusLabel.Location = New-Object System.Drawing.Point(32, 290)
+$statusLabel.Location = New-Object System.Drawing.Point(32, 140)
 $statusLabel.Size = New-Object System.Drawing.Size(476, 22)
 $statusLabel.ForeColor = $foregroundColor
 $statusLabel.BackColor = [System.Drawing.Color]::Transparent
-$form.Controls.Add($statusLabel)
+$script:ClipboardPagePanel.Controls.Add($statusLabel)
 
-$inputPanel = New-NeoPanel -X 18 -Y 318 -Width 504 -Height 190 -Radius 28 -Inset
-$form.Controls.Add($inputPanel)
+$runtimeTitleLabel = New-Object System.Windows.Forms.Label
+$runtimeTitleLabel.Text = "运行状态"
+$runtimeTitleLabel.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 15, [System.Drawing.FontStyle]::Bold)
+$runtimeTitleLabel.ForeColor = $foregroundColor
+$runtimeTitleLabel.BackColor = [System.Drawing.Color]::Transparent
+$runtimeTitleLabel.Location = New-Object System.Drawing.Point(32, 20)
+$runtimeTitleLabel.Size = New-Object System.Drawing.Size(180, 28)
+$script:RuntimePagePanel.Controls.Add($runtimeTitleLabel)
+
+$runtimeSubtitleLabel = New-Object System.Windows.Forms.Label
+$runtimeSubtitleLabel.Text = "监听状态、最近操作和同步日志都在这里。"
+$runtimeSubtitleLabel.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9)
+$runtimeSubtitleLabel.ForeColor = $mutedColor
+$runtimeSubtitleLabel.BackColor = [System.Drawing.Color]::Transparent
+$runtimeSubtitleLabel.Location = New-Object System.Drawing.Point(34, 50)
+$runtimeSubtitleLabel.Size = New-Object System.Drawing.Size(420, 20)
+$script:RuntimePagePanel.Controls.Add($runtimeSubtitleLabel)
+
+$runtimeStatusLabel = New-Object System.Windows.Forms.Label
+$runtimeStatusLabel.Text = "准备就绪"
+$runtimeStatusLabel.AutoEllipsis = $true
+$runtimeStatusLabel.Location = New-Object System.Drawing.Point(34, 76)
+$runtimeStatusLabel.Size = New-Object System.Drawing.Size(434, 22)
+$runtimeStatusLabel.ForeColor = $foregroundColor
+$runtimeStatusLabel.BackColor = [System.Drawing.Color]::Transparent
+$script:RuntimePagePanel.Controls.Add($runtimeStatusLabel)
+$script:RuntimeStatusLabel = $runtimeStatusLabel
+
+$inputPanel = New-NeoPanel -X 18 -Y 168 -Width 504 -Height 190 -Radius 28 -Inset
+$script:ClipboardPagePanel.Controls.Add($inputPanel)
 
 $textBox = New-Object System.Windows.Forms.TextBox
 $textBox.Multiline = $true
@@ -1109,27 +1219,16 @@ $fileList.Size = $textBox.Size
 $fileList.Visible = $false
 $inputPanel.Controls.Add($fileList)
 
-$refreshButton = New-NeoButton -Text "读取剪切板" -X 18 -Y 524 -Width 158 -Height 50
-$refreshButton.Add_Click({
-    Read-ClipboardIntoWidget
-    $script:LastClipboardSequence = [WslClipWidgetNative]::GetClipboardSequenceNumber()
-})
-$form.Controls.Add($refreshButton)
-
-$syncButton = New-NeoButton -Text "同步到 WSL" -X 191 -Y 524 -Width 158 -Height 50 -Fill $accentColor -TextColor ([System.Drawing.Color]::White)
+$syncButton = New-NeoButton -Text "同步到 WSL" -X 191 -Y 374 -Width 158 -Height 50 -Fill $accentColor -TextColor ([System.Drawing.Color]::White)
 $syncButton.Add_Click({ Invoke-WslClipboardSync })
-$form.Controls.Add($syncButton)
+$script:ClipboardPagePanel.Controls.Add($syncButton)
 
-$pasteButton = New-NeoButton -Text "同步并粘贴" -X 364 -Y 524 -Width 158 -Height 50 -Fill $successColor -TextColor ([System.Drawing.Color]::White)
-$pasteButton.Add_Click({ Invoke-WslClipboardSync -Paste })
-$form.Controls.Add($pasteButton)
-
-$syncFromWslButton = New-NeoButton -Text "同步 WSL 剪切板" -X 18 -Y 586 -Width 246 -Height 50 -Fill $successColor -TextColor ([System.Drawing.Color]::White)
+$syncFromWslButton = New-NeoButton -Text "读取WSL剪切板" -X 18 -Y 436 -Width 246 -Height 50 -Fill $successColor -TextColor ([System.Drawing.Color]::White)
 $syncFromWslButton.Add_Click({ Invoke-WslToWindowsClipboardSync })
-$form.Controls.Add($syncFromWslButton)
+$script:ClipboardPagePanel.Controls.Add($syncFromWslButton)
 
-$outputPanel = New-NeoPanel -X 18 -Y 652 -Width 504 -Height 86 -Radius 24 -Inset
-$form.Controls.Add($outputPanel)
+$outputPanel = New-NeoPanel -X 18 -Y 190 -Width 504 -Height 176 -Radius 24 -Inset
+$script:RuntimePagePanel.Controls.Add($outputPanel)
 
 $outputBox = New-Object System.Windows.Forms.TextBox
 $outputBox.Multiline = $true
@@ -1140,17 +1239,18 @@ $outputBox.BackColor = $surfaceColor
 $outputBox.ForeColor = $mutedColor
 $outputBox.Font = New-Object System.Drawing.Font("Consolas", 8.5)
 $outputBox.Location = New-Object System.Drawing.Point(24, 20)
-$outputBox.Size = New-Object System.Drawing.Size(456, 48)
+$outputBox.Size = New-Object System.Drawing.Size(456, 128)
+$outputBox.Text = "最近操作输出会显示在这里。"
 $outputPanel.Controls.Add($outputBox)
 
 $hintLabel = New-Object System.Windows.Forms.Label
-$hintLabel.Text = "Ctrl+V 或拖文件到窗口；按需同步当前方向。"
+$hintLabel.Text = '复制后点“同步到 WSL”，再切到 Linux 微信里粘贴；监听状态看“运行状态”页。'
 $hintLabel.AutoEllipsis = $true
-$hintLabel.Location = New-Object System.Drawing.Point(30, 756)
+$hintLabel.Location = New-Object System.Drawing.Point(30, 606)
 $hintLabel.Size = New-Object System.Drawing.Size(480, 18)
 $hintLabel.ForeColor = $mutedColor
 $hintLabel.BackColor = [System.Drawing.Color]::Transparent
-$form.Controls.Add($hintLabel)
+$script:ClipboardPagePanel.Controls.Add($hintLabel)
 
 $timer = New-Object System.Windows.Forms.Timer
 $timer.Interval = 700
@@ -1210,6 +1310,8 @@ $form.Add_FormClosed({
     if ($iconBox.Image) { $iconBox.Image.Dispose() }
     if ($form.Icon) { $form.Icon.Dispose() }
 })
+
+Set-WidgetPage -Page "clipboard"
 
 Write-WidgetLog "widget_started pid=$PID distro=$Distro ui=winforms-neumorphic"
 [void][System.Windows.Forms.Application]::Run($form)

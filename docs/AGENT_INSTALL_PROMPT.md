@@ -88,7 +88,7 @@ Work step by step:
    - Test Windows-to-Linux: copy text in Windows, use the widget's "同步到 WSL", then paste into Linux WeChat.
    - Test Linux-to-Windows: copy text inside Linux WeChat, wait briefly, then check whether Windows can paste it.
    - Test file transfer: in Linux WeChat, choose a file from `~/Windows-Downloads` or `~/Windows-Documents`, and test saving a received file back into one of those Windows-linked folders.
-   - If automatic sync is not running, use the widget's listener status row or start:
+   - If automatic sync is not running, use the widget's `运行状态` page or start:
      `wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-watch-hidden.vbs"`
    - Do not start a separate `wechatclip2win --watch`; this project uses one unified watcher.
    - Remember that automatic watcher syncs Windows image/file clipboard to Linux and Linux text clipboard to Windows. Windows text to Linux is intentionally done through the widget button or `winclip2wechat` to avoid clipboard loops.

@@ -106,9 +106,9 @@ wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-watch-hi
 & "$env:LOCALAPPDATA\WslPrivate\launchers\stop-clipboard-watch.cmd"
 ```
 
-`start-clipboard-widget-hidden.vbs` opens the manual Windows clipboard widget. The widget can preview/edit text, preview images, list copied or dropped files, and then push that payload to the WSL/Linux clipboard by calling `winclip2wechat`. It also has a manual WSL-to-Windows text sync button that calls `wechatclip2win`, plus app controls that call `wsl -d Ubuntu-22.04 -- wechat-desktop` and `wsl -d Ubuntu-22.04 -- wechat-desktop-stop`.
+`start-clipboard-widget-hidden.vbs` opens the manual Windows clipboard widget. The widget can preview/edit text, preview images, list copied or dropped files, and then push that payload to the WSL/Linux clipboard by calling `winclip2wechat`. It also has a manual WSL-to-Windows text sync button labeled `读取WSL剪切板`, plus app controls that call `wsl -d Ubuntu-22.04 -- wechat-desktop` and `wsl -d Ubuntu-22.04 -- wechat-desktop-stop`.
 
-The widget also shows the unified clipboard watcher status with a green/yellow indicator and a status-aware `启动监听` / `停止监听` button.
+The widget has a dedicated `运行状态` page with the unified clipboard watcher status, a green/yellow indicator, a status-aware `启动监听` / `停止监听` button, and recent operation output.
 
 `start-clipboard-watch-hidden.vbs` starts the single unified bidirectional watcher: Windows image/file clipboard to Linux WeChat, and Linux WeChat/X11 text clipboard to Windows. Do not start `wechatclip2win --watch` as a separate watcher.
 

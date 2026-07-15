@@ -45,7 +45,7 @@ wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-focus-watch-hidden
 # Manual clipboard sync: text, image, or copied files
 wsl -d Ubuntu-22.04 -- winclip2wechat
 
-# Open manual clipboard sync widget
+# Open manual clipboard widget (clipboard page / runtime status page)
 wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-widget-hidden.vbs"
 
 # Sync clipboard and paste into active WeChat input
