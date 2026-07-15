@@ -4,6 +4,9 @@ This file tracks repository changes made by agents. Keep entries short and appen
 
 ## 2026-07-15
 
+- Added a `README.md` update-record section linking to `docs/CHANGELOG.md` so users can find the full maintenance history from the project landing page.
+- Verification: `git diff --check`.
+
 - Fixed the nested Xephyr/openbox/tint2 desktop to a single workspace so mouse-wheel scrolling cannot move the user into unused `desktop2-4` workspaces; `wechat-restore` also enforces the single-workspace state.
 - Moved the widget's `同步到 WSL` and `读取WSL剪切板` buttons onto one bottom row, and corrected README/helper docs to describe the new button placement and single-workspace desktop behavior.
 - Deployed the updated Linux commands and Windows launcher files to `/usr/local/bin` and `%LOCALAPPDATA%\WslPrivate\launchers`, refreshed the current tint2 panel without stopping WeChat, and verified the desktop shortcut points at the updated private launcher.
