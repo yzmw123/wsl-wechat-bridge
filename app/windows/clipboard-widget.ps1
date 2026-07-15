@@ -1250,11 +1250,11 @@ $fileList.Size = $textBox.Size
 $fileList.Visible = $false
 $inputPanel.Controls.Add($fileList)
 
-$syncButton = New-NeoButton -Text "同步到 WSL" -X 191 -Y 374 -Width 158 -Height 50 -Fill $accentColor -TextColor ([System.Drawing.Color]::White)
+$syncButton = New-NeoButton -Text "同步到 WSL" -X 18 -Y 374 -Width 246 -Height 50 -Fill $accentColor -TextColor ([System.Drawing.Color]::White)
 $syncButton.Add_Click({ Invoke-WslClipboardSync })
 $script:ClipboardPagePanel.Controls.Add($syncButton)
 
-$syncFromWslButton = New-NeoButton -Text "读取WSL剪切板" -X 18 -Y 436 -Width 246 -Height 50 -Fill $successColor -TextColor ([System.Drawing.Color]::White)
+$syncFromWslButton = New-NeoButton -Text "读取WSL剪切板" -X 276 -Y 374 -Width 246 -Height 50 -Fill $successColor -TextColor ([System.Drawing.Color]::White)
 $syncFromWslButton.Add_Click({ Invoke-WslToWindowsClipboardSync })
 $script:ClipboardPagePanel.Controls.Add($syncFromWslButton)
 

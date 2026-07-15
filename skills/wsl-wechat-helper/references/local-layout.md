@@ -25,6 +25,16 @@ WSL_WECHAT_CLIPBOARD_TTL_SECONDS=3600
 
 `BADGE_WATCH_ENABLED` is intentionally disabled by default. `wechat-desktop-status` prints the effective defaults so diagnostics can distinguish a disabled optional watcher from a failed one.
 
+## Nested Desktop
+
+`wechat-desktop` runs Linux WeChat inside Xephyr/openbox/tint2 on the nested display. The openbox runtime is fixed to a single workspace:
+
+- private openbox config: `~/.cache/wechat-desktop/openbox/rc.xml`
+- private tint2 config: `~/.cache/wechat-desktop/tint2/tint2rc`
+- active workspace count: `1`, named `desktop1`
+
+The generated openbox config sets `<number>1</number>`, disables the desktop switch popup, and removes desktop-switch key/mouse bindings from that private config. Startup and `wechat-restore` also enforce the live X11 desktop count as 1 with `wmctrl` or `xdotool` when available, so mouse-wheel scrolling cannot send the user to unused `desktop2-4` workspaces.
+
 ## Windows File Links
 
 The installer creates convenience links in the WSL home directory when the Windows paths are mounted:
@@ -170,7 +180,7 @@ Manual Windows widget:
 wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-widget-hidden.vbs"
 ```
 
-The widget has two pages. The `剪贴板` page previews or edits Windows clipboard payloads, then calls `winclip2wechat` to write the selected payload into the Linux/X11 clipboard. The `运行状态` page shows the unified clipboard watcher status, a green/yellow indicator, a status-aware `启动监听` / `停止监听` button, a small yellow/green status dot in the `运行状态` tab, and recent operation output. It also has a manual WSL-to-Windows text sync button labeled `读取WSL剪切板`, plus `启动应用` and `关闭应用` buttons for `wechat-desktop` and `wechat-desktop-stop`. A desktop shortcut named `WSL剪切板同步.lnk` may point to this VBS launcher and use `wsl-clip-cube.ico`.
+The widget has two pages. The `剪贴板` page previews or edits Windows clipboard payloads, then calls `winclip2wechat` to write the selected payload into the Linux/X11 clipboard. Its bottom row has two side-by-side buttons: `同步到 WSL` and `读取WSL剪切板`; the second button manually pulls Linux/X11 text back to Windows with `wechatclip2win`. The `运行状态` page shows the unified clipboard watcher status, a green/yellow indicator, a status-aware `启动监听` / `停止监听` button, a small yellow/green status dot in the `运行状态` tab, and recent operation output. It also has `启动应用` and `关闭应用` controls for `wechat-desktop` and `wechat-desktop-stop`. A desktop shortcut named `WSL剪切板同步.lnk` may point to this VBS launcher and use `wsl-clip-cube.ico`.
 
 The widget icon uses a multi-size ICO generated from `clipboard-widget.ps1`; the shortcut should use an absolute `IconLocation`, not `%USERPROFILE%...`. The WinForms process sets an explicit AppUserModelID and sends both small and big window icons so the Windows taskbar does not fall back to a blank PowerShell/script placeholder.
 

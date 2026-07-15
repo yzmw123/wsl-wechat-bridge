@@ -4,6 +4,12 @@ This file tracks repository changes made by agents. Keep entries short and appen
 
 ## 2026-07-15
 
+- Fixed the nested Xephyr/openbox/tint2 desktop to a single workspace so mouse-wheel scrolling cannot move the user into unused `desktop2-4` workspaces; `wechat-restore` also enforces the single-workspace state.
+- Moved the widget's `同步到 WSL` and `读取WSL剪切板` buttons onto one bottom row, and corrected README/helper docs to describe the new button placement and single-workspace desktop behavior.
+- Deployed the updated Linux commands and Windows launcher files to `/usr/local/bin` and `%LOCALAPPDATA%\WslPrivate\launchers`, refreshed the current tint2 panel without stopping WeChat, and verified the desktop shortcut points at the updated private launcher.
+- Updated the local learning record for recurring cross-shell verification quoting failures.
+- Verification: Bash syntax checks for `wechat-desktop` and `wechat-restore`, PowerShell parser check for `clipboard-widget.ps1`, single-workspace runtime check with `wmctrl -d`, openbox/tint2 private config checks, `scripts/install.ps1 -Distro Ubuntu-22.04 -NoDoctor`, installed file hash checks, shortcut target inspection, `scripts/doctor.ps1 -Distro Ubuntu-22.04`, `wechat-desktop-status`, and `git diff --check`.
+
 - Enlarged the `剪贴板` and `运行状态` tabs for readability, added a yellow/green status dot to the `运行状态` tab, and tied that dot to the unified clipboard watcher state.
 - Updated README and helper docs to describe the tab status dot and clearer two-page widget layout.
 - Verification: PowerShell parser check for `app/windows/clipboard-widget.ps1` and `git diff --check`.

@@ -60,6 +60,10 @@ wsl -d Ubuntu-22.04 -- wechat-desktop-stop --force
 
 `wechat-desktop-status` also reports runtime config defaults such as `badge_watch_enabled`, log rotation limits, and clipboard temporary payload TTL.
 
+### Nested Desktop Workspaces
+
+The Xephyr/openbox/tint2 desktop is intentionally fixed to one workspace, `desktop1`. `wechat-desktop` generates private openbox/tint2 configs under `~/.cache/wechat-desktop` and enforces the live X11 desktop count as 1. If the user reports scrolling into `desktop2-4`, check `references/local-layout.md`, verify `wmctrl -d` on the nested display, and avoid stopping WeChat unless a full restart is clearly needed.
+
 ### Notification Bridge
 
 The notification bridge should flash the Windows taskbar entry for the nested WeChat Desktop window. The small Windows popup is optional and is disabled by default; the widget's `消息弹窗` checkbox writes `%LOCALAPPDATA%\WslPrivate\launchers\settings.json` with `NoticePopupEnabled`. The bridge primarily trusts WeChat's own notification signals: X11 window changes and a small `org.freedesktop.Notifications` D-Bus daemon on the same session bus as WeChat. A file-activity watcher still logs WeChat message/session storage changes for diagnosis, but it is `log-only` by default and must not send Windows notices by default; this avoids muted groups, service accounts, official accounts, and other silent sync activity causing noisy alerts.
@@ -106,7 +110,7 @@ wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-watch-hi
 & "$env:LOCALAPPDATA\WslPrivate\launchers\stop-clipboard-watch.cmd"
 ```
 
-`start-clipboard-widget-hidden.vbs` opens the manual Windows clipboard widget. The widget can preview/edit text, preview images, list copied or dropped files, and then push that payload to the WSL/Linux clipboard by calling `winclip2wechat`. It also has a manual WSL-to-Windows text sync button labeled `读取WSL剪切板`, plus app controls that call `wsl -d Ubuntu-22.04 -- wechat-desktop` and `wsl -d Ubuntu-22.04 -- wechat-desktop-stop`.
+`start-clipboard-widget-hidden.vbs` opens the manual Windows clipboard widget. The widget can preview/edit text, preview images, list copied or dropped files, and then push that payload to the WSL/Linux clipboard by calling `winclip2wechat`. Its `剪贴板` page bottom row has two side-by-side buttons: `同步到 WSL` and the manual WSL-to-Windows text sync button `读取WSL剪切板`. It also has app controls that call `wsl -d Ubuntu-22.04 -- wechat-desktop` and `wsl -d Ubuntu-22.04 -- wechat-desktop-stop`.
 
 The widget has a dedicated `运行状态` page with the unified clipboard watcher status, a green/yellow indicator, a status-aware `启动监听` / `停止监听` button, a small yellow/green status dot in the `运行状态` tab, and recent operation output.
 

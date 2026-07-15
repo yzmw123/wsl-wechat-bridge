@@ -2,6 +2,7 @@
 set -euo pipefail
 
 state_dir="$HOME/.cache/wechat-desktop"
+tint2_config_file="$state_dir/tint2/tint2rc"
 display="${WECHAT_DESKTOP_DISPLAY:-}"
 
 if [ -z "$display" ]; then
@@ -15,13 +16,58 @@ fi
 export DISPLAY="$display"
 unset WAYLAND_DISPLAY
 
+enforce_single_desktop() {
+  if command -v wmctrl >/dev/null 2>&1; then
+    wmctrl -l 2>/dev/null | awk '$2 != "-1" { print $1 }' | while IFS= read -r window_id; do
+      [ -n "$window_id" ] || continue
+      wmctrl -i -r "$window_id" -t 0 >/dev/null 2>&1 || true
+    done
+    wmctrl -s 0 >/dev/null 2>&1 || true
+    wmctrl -n 1 >/dev/null 2>&1 || true
+    wmctrl -s 0 >/dev/null 2>&1 || true
+  elif command -v xdotool >/dev/null 2>&1; then
+    xdotool set_desktop 0 >/dev/null 2>&1 || true
+    xdotool set_num_desktops 1 >/dev/null 2>&1 || true
+    xdotool set_desktop 0 >/dev/null 2>&1 || true
+  fi
+}
+
+prepare_tint2_config() {
+  mkdir -p "$state_dir/tint2"
+  chmod 700 "$state_dir/tint2" 2>/dev/null || true
+
+  if [ -r /etc/xdg/tint2/tint2rc ]; then
+    awk '
+      /^taskbar_mode[[:space:]]*=/ {
+        print "taskbar_mode = single_desktop"
+        next
+      }
+      /^taskbar_name[[:space:]]*=/ {
+        print "taskbar_name = 0"
+        next
+      }
+      /^taskbar_always_show_all_desktop_tasks[[:space:]]*=/ {
+        print "taskbar_always_show_all_desktop_tasks = 1"
+        next
+      }
+      { print }
+    ' /etc/xdg/tint2/tint2rc >"$tint2_config_file.tmp" && mv -f "$tint2_config_file.tmp" "$tint2_config_file"
+    chmod 600 "$tint2_config_file" 2>/dev/null || true
+  fi
+}
+
 if ! xdpyinfo -display "$display" >/dev/null 2>&1; then
   exec wechat-desktop
 fi
 
+enforce_single_desktop
+
 if command -v tint2 >/dev/null 2>&1; then
+  prepare_tint2_config
   if ! ps -p "$(cat "$state_dir/tint2.pid" 2>/dev/null || echo 0)" >/dev/null 2>&1; then
-    if [ -r /etc/xdg/tint2/tint2rc ]; then
+    if [ -r "$tint2_config_file" ]; then
+      nohup tint2 -c "$tint2_config_file" >"$state_dir/tint2.log" 2>&1 &
+    elif [ -r /etc/xdg/tint2/tint2rc ]; then
       nohup tint2 -c /etc/xdg/tint2/tint2rc >"$state_dir/tint2.log" 2>&1 &
     else
       nohup tint2 >"$state_dir/tint2.log" 2>&1 &

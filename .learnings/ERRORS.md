@@ -102,9 +102,11 @@ Use parser-safe PowerShell interpolation, select files by shebang before syntax 
 - Reproducible: yes
 - Related Files: app/linux/bin/wechat-desktop, app/linux/bin/wechat-desktop-status
 - See Also: ERR-20260715-002
+- Recurrence-Count: 2
+- Last-Seen: 2026-07-15T15:00:00+08:00
 
 ### Resolution
 - **Resolved**: 2026-07-15T11:30:00+08:00
-- **Notes**: Corrected the code and reran PowerShell parser, Bash syntax, Python compile, and runtime checks successfully.
+- **Notes**: Corrected the code and reran PowerShell parser, Bash syntax, Python compile, and runtime checks successfully. On the later workspace-layout change, dense `wsl bash -lc` one-liners failed again; switched follow-up verification to temporary files/scripts instead.
 
 ---

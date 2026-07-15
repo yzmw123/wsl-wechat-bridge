@@ -4,6 +4,8 @@
 
 `wechat-desktop` starts a nested X display with Xephyr, then launches Linux WeChat inside that display. It also starts helper services when the Windows-side launcher scripts are present.
 
+The nested desktop is intentionally single-workspace. `wechat-desktop` generates a private openbox config under `~/.cache/wechat-desktop/openbox/rc.xml`, sets `<number>1</number>`, removes desktop-switch bindings from that runtime config, and enforces the live X11 desktop count as 1 with `wmctrl`/`xdotool` when available. This prevents mouse-wheel workspace switching from hiding WeChat on unused `desktop2-4` workspaces.
+
 Windows helper scripts live under:
 
 ```powershell

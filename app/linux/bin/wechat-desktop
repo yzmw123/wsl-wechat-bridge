@@ -5,6 +5,10 @@ display="${WECHAT_DESKTOP_DISPLAY:-:20}"
 screen="${WECHAT_DESKTOP_SIZE:-1200x800}"
 state_dir="$HOME/.cache/wechat-desktop"
 config_file="${XDG_CONFIG_HOME:-$HOME/.config}/wsl-wechat-bridge/config"
+openbox_config_dir="$state_dir/openbox"
+openbox_config_file="$openbox_config_dir/rc.xml"
+tint2_config_dir="$state_dir/tint2"
+tint2_config_file="$tint2_config_dir/tint2rc"
 mkdir -p "$state_dir"
 chmod 700 "$state_dir" 2>/dev/null || true
 printf '%s\n' "$display" >"$state_dir/display"
@@ -90,6 +94,155 @@ rotate_log() {
   mv -f "$file" "$file.1" 2>/dev/null || true
 }
 
+prepare_openbox_config() {
+  mkdir -p "$openbox_config_dir"
+  chmod 700 "$openbox_config_dir" 2>/dev/null || true
+
+  if command -v python3 >/dev/null 2>&1 && [ -r /etc/xdg/openbox/rc.xml ]; then
+    if python3 - /etc/xdg/openbox/rc.xml "$openbox_config_file" <<'PY'
+import os
+import sys
+import xml.etree.ElementTree as ET
+
+src, dst = sys.argv[1], sys.argv[2]
+tree = ET.parse(src)
+root = tree.getroot()
+ns_uri = root.tag.split("}", 1)[0][1:] if root.tag.startswith("{") else ""
+if ns_uri:
+    ET.register_namespace("", ns_uri)
+ns = {"ob": ns_uri} if ns_uri else {}
+
+
+def q(name):
+    return f"{{{ns_uri}}}{name}" if ns_uri else name
+
+
+def local(tag):
+    return tag.rsplit("}", 1)[-1]
+
+
+def find(parent, name):
+    return parent.find(f"ob:{name}" if ns_uri else name, ns)
+
+
+def ensure(parent, name, text):
+    elem = find(parent, name)
+    if elem is None:
+        elem = ET.SubElement(parent, q(name))
+    elem.text = text
+    return elem
+
+
+desktops = find(root, "desktops")
+if desktops is None:
+    desktops = ET.SubElement(root, q("desktops"))
+ensure(desktops, "number", "1")
+ensure(desktops, "firstdesk", "1")
+ensure(desktops, "popupTime", "0")
+
+names = find(desktops, "names")
+if names is None:
+    names = ET.SubElement(desktops, q("names"))
+for child in list(names):
+    names.remove(child)
+name = ET.SubElement(names, q("name"))
+name.text = "desktop1"
+
+for parent in root.iter():
+    for child in list(parent):
+        if local(child.tag) not in {"keybind", "mousebind"}:
+            continue
+        has_desktop_action = False
+        for action in child.iter():
+            if local(action.tag) == "action" and action.attrib.get("name") in {"GoToDesktop", "SendToDesktop"}:
+                has_desktop_action = True
+                break
+        if has_desktop_action:
+            parent.remove(child)
+
+tmp = dst + ".tmp"
+tree.write(tmp, encoding="UTF-8", xml_declaration=True)
+os.replace(tmp, dst)
+PY
+    then
+      chmod 600 "$openbox_config_file" 2>/dev/null || true
+      return 0
+    fi
+  fi
+
+  if [ -r /etc/xdg/openbox/rc.xml ]; then
+    cp /etc/xdg/openbox/rc.xml "$openbox_config_file"
+    sed -i -E \
+      -e 's#<number>[0-9]+</number>#<number>1</number>#' \
+      -e 's#<popupTime>[0-9]+</popupTime>#<popupTime>0</popupTime>#' \
+      "$openbox_config_file" 2>/dev/null || true
+  else
+    cat >"$openbox_config_file" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <focus><focusNew>yes</focusNew><followMouse>no</followMouse><focusLast>yes</focusLast></focus>
+  <placement><policy>Smart</policy><center>yes</center><monitor>Primary</monitor></placement>
+  <theme><name>Clearlooks</name><titleLayout>NLIMC</titleLayout><keepBorder>yes</keepBorder></theme>
+  <desktops><number>1</number><firstdesk>1</firstdesk><names><name>desktop1</name></names><popupTime>0</popupTime></desktops>
+  <margins><top>0</top><bottom>0</bottom><left>0</left><right>0</right></margins>
+  <mouse>
+    <context name="Client">
+      <mousebind button="Left" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+      <mousebind button="Middle" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+      <mousebind button="Right" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+    </context>
+    <context name="Desktop">
+      <mousebind button="Left" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+      <mousebind button="Right" action="Press"><action name="Focus"/><action name="Raise"/></mousebind>
+    </context>
+  </mouse>
+</openbox_config>
+EOF
+  fi
+
+  chmod 600 "$openbox_config_file" 2>/dev/null || true
+}
+
+prepare_tint2_config() {
+  mkdir -p "$tint2_config_dir"
+  chmod 700 "$tint2_config_dir" 2>/dev/null || true
+
+  if [ -r /etc/xdg/tint2/tint2rc ]; then
+    awk '
+      /^taskbar_mode[[:space:]]*=/ {
+        print "taskbar_mode = single_desktop"
+        next
+      }
+      /^taskbar_name[[:space:]]*=/ {
+        print "taskbar_name = 0"
+        next
+      }
+      /^taskbar_always_show_all_desktop_tasks[[:space:]]*=/ {
+        print "taskbar_always_show_all_desktop_tasks = 1"
+        next
+      }
+      { print }
+    ' /etc/xdg/tint2/tint2rc >"$tint2_config_file.tmp" && mv -f "$tint2_config_file.tmp" "$tint2_config_file"
+    chmod 600 "$tint2_config_file" 2>/dev/null || true
+  fi
+}
+
+enforce_single_desktop() {
+  if command -v wmctrl >/dev/null 2>&1; then
+    wmctrl -l 2>/dev/null | awk '$2 != "-1" { print $1 }' | while IFS= read -r window_id; do
+      [ -n "$window_id" ] || continue
+      wmctrl -i -r "$window_id" -t 0 >/dev/null 2>&1 || true
+    done
+    wmctrl -s 0 >/dev/null 2>&1 || true
+    wmctrl -n 1 >/dev/null 2>&1 || true
+    wmctrl -s 0 >/dev/null 2>&1 || true
+  elif command -v xdotool >/dev/null 2>&1; then
+    xdotool set_desktop 0 >/dev/null 2>&1 || true
+    xdotool set_num_desktops 1 >/dev/null 2>&1 || true
+    xdotool set_desktop 0 >/dev/null 2>&1 || true
+  fi
+}
+
 resolve_wechat_command() {
   local configured
 
@@ -165,24 +318,31 @@ if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
   eval "$(dbus-launch --sh-syntax)"
 fi
 
+prepare_openbox_config
 if ! ps -p "$(cat "$state_dir/openbox.pid" 2>/dev/null || echo 0)" >/dev/null 2>&1; then
   rotate_log "$state_dir/openbox.log"
-  nohup openbox >"$state_dir/openbox.log" 2>&1 &
+  nohup openbox --config-file "$openbox_config_file" >"$state_dir/openbox.log" 2>&1 &
   echo $! >"$state_dir/openbox.pid"
   sleep 0.5
+else
+  openbox --reconfigure >/dev/null 2>&1 || true
 fi
+enforce_single_desktop
 
 start_panel() {
   if ! command -v tint2 >/dev/null 2>&1; then
     return 0
   fi
 
+  prepare_tint2_config
   if ps -p "$(cat "$state_dir/tint2.pid" 2>/dev/null || echo 0)" >/dev/null 2>&1; then
     return 0
   fi
 
   rotate_log "$state_dir/tint2.log"
-  if [ -r /etc/xdg/tint2/tint2rc ]; then
+  if [ -r "$tint2_config_file" ]; then
+    nohup tint2 -c "$tint2_config_file" >"$state_dir/tint2.log" 2>&1 &
+  elif [ -r /etc/xdg/tint2/tint2rc ]; then
     nohup tint2 -c /etc/xdg/tint2/tint2rc >"$state_dir/tint2.log" 2>&1 &
   else
     nohup tint2 >"$state_dir/tint2.log" 2>&1 &
