@@ -113,6 +113,10 @@ public class NeoButton : Control {
     public Color DisabledTextColor { get; set; }
     public Color ShadowColor { get; set; }
     public Color LightColor { get; set; }
+    public bool StatusDotVisible { get; set; }
+    public Color StatusDotColor { get; set; }
+    public int StatusDotDiameter { get; set; }
+    public int StatusDotMargin { get; set; }
 
     public NeoButton() {
         Radius = 16;
@@ -122,6 +126,10 @@ public class NeoButton : Control {
         DisabledTextColor = Color.FromArgb(148, 163, 184);
         ShadowColor = Color.FromArgb(165, 163, 177, 198);
         LightColor = Color.FromArgb(175, 255, 255, 255);
+        StatusDotVisible = false;
+        StatusDotColor = Color.FromArgb(245, 158, 11);
+        StatusDotDiameter = 8;
+        StatusDotMargin = 14;
         DoubleBuffered = true;
         ResizeRedraw = true;
         Cursor = Cursors.Hand;
@@ -148,7 +156,17 @@ public class NeoButton : Control {
             light = Color.FromArgb(110, 255, 255, 255);
         }
         NeoPanel.DrawSurface(e.Graphics, ClientRectangle, Radius, pressed, fill, dark, light);
-        Rectangle textRect = new Rectangle(10, 0, Width - 20, Height);
+        int textLeft = 10;
+        if (StatusDotVisible) {
+            int dotSize = Math.Max(6, StatusDotDiameter);
+            int dotX = Math.Max(8, StatusDotMargin);
+            int dotY = Math.Max(0, (Height - dotSize) / 2);
+            using (SolidBrush dotBrush = new SolidBrush(StatusDotColor)) {
+                e.Graphics.FillEllipse(dotBrush, dotX, dotY, dotSize, dotSize);
+            }
+            textLeft = dotX + dotSize + 7;
+        }
+        Rectangle textRect = new Rectangle(textLeft, 0, Math.Max(8, Width - textLeft - 10), Height);
         if (hover && !pressed && Enabled) textRect.Y -= 1;
         TextRenderer.DrawText(e.Graphics, Text, Font, textRect, text, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
     }
@@ -524,7 +542,7 @@ function Set-WidgetPage {
 
     if ($script:RuntimePageButton) {
         if ($Page -eq "runtime") {
-            $script:RuntimePageButton.FillColor = $successColor
+            $script:RuntimePageButton.FillColor = $accentColor
             $script:RuntimePageButton.TextColor = [System.Drawing.Color]::White
         }
         else {
@@ -585,6 +603,10 @@ function Update-ClipboardWatcherStatus {
         $watchDotLabel.ForeColor = $watchOkColor
         $watchStatusLabel.Text = $watch.Text
         $watchStatusLabel.ForeColor = [System.Drawing.Color]::FromArgb(28, 110, 68)
+        if ($script:RuntimePageButton) {
+            $script:RuntimePageButton.StatusDotColor = $watchOkColor
+            $script:RuntimePageButton.Invalidate()
+        }
         $watchStartButton.Text = "停止监听"
         $watchStartButton.FillColor = $surfaceColor
         $watchStartButton.TextColor = $foregroundColor
@@ -594,6 +616,10 @@ function Update-ClipboardWatcherStatus {
         $watchDotLabel.ForeColor = $watchWarnColor
         $watchStatusLabel.Text = $watch.Text
         $watchStatusLabel.ForeColor = [System.Drawing.Color]::FromArgb(133, 77, 14)
+        if ($script:RuntimePageButton) {
+            $script:RuntimePageButton.StatusDotColor = $watchWarnColor
+            $script:RuntimePageButton.Invalidate()
+        }
         $watchStartButton.Text = "启动监听"
         $watchStartButton.FillColor = $watchWarnColor
         $watchStartButton.TextColor = [System.Drawing.Color]::White
@@ -1078,14 +1104,19 @@ $noticePopupCheckBox.Add_CheckedChanged({
 })
 $headerPanel.Controls.Add($noticePopupCheckBox)
 
-$clipboardPageButton = New-NeoButton -Text "剪贴板" -X 112 -Y 88 -Width 122 -Height 24
-$clipboardPageButton.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8.5, [System.Drawing.FontStyle]::Bold)
+$clipboardPageButton = New-NeoButton -Text "剪贴板" -X 102 -Y 82 -Width 128 -Height 30
+$clipboardPageButton.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.25, [System.Drawing.FontStyle]::Bold)
+$clipboardPageButton.Radius = 13
 $clipboardPageButton.Add_Click({ Set-WidgetPage -Page "clipboard" })
 $headerPanel.Controls.Add($clipboardPageButton)
 $script:ClipboardPageButton = $clipboardPageButton
 
-$runtimePageButton = New-NeoButton -Text "运行状态" -X 240 -Y 88 -Width 128 -Height 24 -Fill $surfaceColor
-$runtimePageButton.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 8.5, [System.Drawing.FontStyle]::Bold)
+$runtimePageButton = New-NeoButton -Text "运行状态" -X 236 -Y 82 -Width 136 -Height 30 -Fill $surfaceColor
+$runtimePageButton.Font = New-Object System.Drawing.Font("Microsoft YaHei UI", 9.25, [System.Drawing.FontStyle]::Bold)
+$runtimePageButton.Radius = 13
+$runtimePageButton.StatusDotVisible = $true
+$runtimePageButton.StatusDotDiameter = 8
+$runtimePageButton.StatusDotMargin = 14
 $runtimePageButton.Add_Click({ Set-WidgetPage -Page "runtime" })
 $headerPanel.Controls.Add($runtimePageButton)
 $script:RuntimePageButton = $runtimePageButton

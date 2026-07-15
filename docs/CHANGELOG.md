@@ -4,6 +4,10 @@ This file tracks repository changes made by agents. Keep entries short and appen
 
 ## 2026-07-15
 
+- Enlarged the `剪贴板` and `运行状态` tabs for readability, added a yellow/green status dot to the `运行状态` tab, and tied that dot to the unified clipboard watcher state.
+- Updated README and helper docs to describe the tab status dot and clearer two-page widget layout.
+- Verification: PowerShell parser check for `app/windows/clipboard-widget.ps1` and `git diff --check`.
+
 - Updated the Windows clipboard widget to remove the `读取剪切板` and `同步并粘贴` buttons, rename the Linux-to-Windows action to `读取WSL剪切板`, and add a visible `运行状态` page for watcher status and recent output.
 - Updated README, architecture, install prompt, and WSL helper reference docs to match the two-page widget layout and new button labels.
 - Verification: PowerShell parser check for `app/windows/clipboard-widget.ps1`, `scripts/doctor.ps1 -Distro Ubuntu-22.04`, and `git diff --check`.
