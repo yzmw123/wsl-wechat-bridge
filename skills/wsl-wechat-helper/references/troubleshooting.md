@@ -61,9 +61,9 @@ Expected:
 - `notification_daemon=running`.
 - `notification-daemon.log` has a `started ... bus=...` line.
 - `notification-daemon.log` has a `file-watch started ...` line.
-- `notification-daemon.log` has `file-notice-mode=log-only`.
+- `notification-daemon.log` has `file-notice-mode=flash`.
 - When a real Linux notification arrives, it logs `dbus-notify ...` with lengths and hashes, not summary/body text.
-- When the diagnostic file watcher sees WeChat message/session activity, it logs `file-activity ...`, but this should not send Windows notices in default `log-only` mode.
+- When the file watcher sees WeChat message/session activity, it logs `file-activity ...`. In default `flash` mode, it should then log `notify reason=file-activity... suppress_popup=1` unless the debounce window is active or Windows foreground is already WeChat Desktop.
 
 If `notification_daemon=stopped`, restart:
 
@@ -71,7 +71,7 @@ If `notification_daemon=stopped`, restart:
 wsl -d Ubuntu-22.04 -- wsl-app-notify-bridge-restart
 ```
 
-If the daemon is running but no `dbus-notify` appears during a real message, WeChat did not emit a standard Linux notification for that event. `file-activity ...` only proves storage changed; it no longer means a Windows notice should appear. This is intentional to avoid muted groups, official accounts, service accounts, cross-device sync, and self-sent messages becoming alerts.
+If the daemon is running but no `dbus-notify` appears during a real message, WeChat did not emit a standard Linux notification for that event. `file-activity ...` is the fallback path: it flashes the taskbar only, keeps the popup suppressed, and remains debounced to reduce muted-group, official-account, service-account, cross-device sync, and self-sent-message noise.
 
 If normal private chats still do not alert after this strict mode change, the next fallback is the opt-in unread badge watcher. Set `BADGE_WATCH_ENABLED=1` in `~/.config/wsl-wechat-bridge/config` only when the user accepts the extra screenshot polling cost.
 

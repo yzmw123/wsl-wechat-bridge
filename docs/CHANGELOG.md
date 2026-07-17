@@ -2,6 +2,12 @@
 
 This file tracks repository changes made by agents. Keep entries short and append newest entries near the top.
 
+## 2026-07-17
+
+- Restored file-activity message fallback as taskbar-flash-only by default, so disabling the `消息弹窗` widget option no longer removes taskbar flashing for messages that do not emit D-Bus/X11 notification signals.
+- Added a `notice.ps1` popup suppression switch for fallback notices, updated README/helper docs to document the separate popup and taskbar-flash behavior, and recorded the extensionless Python helper smoke-test loading gotcha in local learnings.
+- Verification: PowerShell parser check for `notice.ps1`, Python `py_compile` for `wsl-app-notification-daemon`, `git diff --check`, `scripts/install.ps1 -Distro Ubuntu-22.04 -NoDoctor`, installed helper hash checks, `wsl-app-notify-bridge --test`, flash-only smoke test showing `suppress_popup=True` and `popup=suppressed`, `scripts/doctor.ps1 -Distro Ubuntu-22.04`, and status checks showing the bridge running while WeChat Desktop is currently stopped.
+
 ## 2026-07-15
 
 - Replaced the README update-record link with a concise public-facing 2026-07-15 summary of the day's changes.

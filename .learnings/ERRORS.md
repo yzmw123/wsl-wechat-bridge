@@ -110,3 +110,35 @@ Use parser-safe PowerShell interpolation, select files by shebang before syntax 
 - **Notes**: Corrected the code and reran PowerShell parser, Bash syntax, Python compile, and runtime checks successfully. On the later workspace-layout change, dense `wsl bash -lc` one-liners failed again; switched follow-up verification to temporary files/scripts instead.
 
 ---
+
+## [ERR-20260717-001] importlib-load-extensionless-script
+
+**Logged**: 2026-07-17T10:52:00+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: tests
+
+### Summary
+`importlib.util.spec_from_file_location` returned no loader for the extensionless installed Python helper script.
+
+### Error
+```
+AttributeError: 'NoneType' object has no attribute 'loader'
+```
+
+### Context
+- Attempted to load `/usr/local/bin/wsl-app-notification-daemon` from a WSL Python smoke test.
+- The installed helper has no `.py` suffix, so Python could not infer a source loader from the file name.
+
+### Suggested Fix
+Use `importlib.machinery.SourceFileLoader` when smoke-testing extensionless Python helper scripts.
+
+### Metadata
+- Reproducible: yes
+- Related Files: app/linux/bin/wsl-app-notification-daemon
+
+### Resolution
+- **Resolved**: 2026-07-17T10:52:00+08:00
+- **Notes**: Switched the smoke test to an explicit source loader.
+
+---

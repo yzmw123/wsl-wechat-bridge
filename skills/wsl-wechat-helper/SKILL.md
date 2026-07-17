@@ -66,7 +66,7 @@ The Xephyr/openbox/tint2 desktop is intentionally fixed to one workspace, `deskt
 
 ### Notification Bridge
 
-The notification bridge should flash the Windows taskbar entry for the nested WeChat Desktop window. The small Windows popup is optional and is disabled by default; the widget's `消息弹窗` checkbox writes `%LOCALAPPDATA%\WslPrivate\launchers\settings.json` with `NoticePopupEnabled`. The bridge primarily trusts WeChat's own notification signals: X11 window changes and a small `org.freedesktop.Notifications` D-Bus daemon on the same session bus as WeChat. A file-activity watcher still logs WeChat message/session storage changes for diagnosis, but it is `log-only` by default and must not send Windows notices by default; this avoids muted groups, service accounts, official accounts, and other silent sync activity causing noisy alerts.
+The notification bridge should flash the Windows taskbar entry for the nested WeChat Desktop window. The small Windows popup is optional and is disabled by default; the widget's `消息弹窗` checkbox writes `%LOCALAPPDATA%\WslPrivate\launchers\settings.json` with `NoticePopupEnabled`. The bridge primarily trusts WeChat's own notification signals: X11 window changes and a small `org.freedesktop.Notifications` D-Bus daemon on the same session bus as WeChat. A file-activity watcher also watches WeChat message/session storage changes as a fallback; it defaults to `flash`, which sends a flash-only Windows notice and suppresses the popup even if `NoticePopupEnabled` is true. Set `WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE=log-only` only when file-activity flashing is too noisy.
 
 Use:
 
@@ -78,7 +78,7 @@ wsl -d Ubuntu-22.04 -- wsl-app-notify-bridge-restart
 
 If `--test` logs the request but no taskbar flash appears, read `references/troubleshooting.md` before editing scripts. A missing popup is expected when `NoticePopupEnabled` is false. The working bridge uses a Windows PowerShell `Start-Process` parent command and passes the helper path via `WSLENV=WSL_NOTICE_HELPER`.
 
-If manual `--test` works but real messages do not, check `wsl-app-notify-bridge --status` and `~/.cache/wechat-desktop/notification-daemon.log`. Real alerts should normally show as `dbus-notify`, X11 attention/title signals, or new WeChat windows. `file-activity` alone is diagnostic in the default `log-only` mode and should not be treated as a user-facing alert. D-Bus logs intentionally use lengths and hashes instead of notification summary/body text.
+If manual `--test` works but real messages do not, check `wsl-app-notify-bridge --status` and `~/.cache/wechat-desktop/notification-daemon.log`. Real alerts should normally show as `dbus-notify`, X11 attention/title signals, new WeChat windows, or `file-activity` followed by `notify reason=file-activity... suppress_popup=1`. D-Bus logs intentionally use lengths and hashes instead of notification summary/body text.
 
 The experimental unread badge watcher can be enabled with `BADGE_WATCH_ENABLED=1` in `~/.config/wsl-wechat-bridge/config`. Leave it disabled by default unless the user explicitly wants the extra screenshot-based fallback.
 

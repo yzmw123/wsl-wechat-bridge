@@ -66,7 +66,7 @@ If users can launch Linux WeChat but cannot type Chinese, check the input packag
 - `winclip2wechat`: writes Windows clipboard text, image, or file URI payloads to the Linux clipboard.
 - `wechatclip2win`: copies nested X11 text clipboard back to Windows.
 - `focus-watch.ps1` and `wsl-app-focus-bridge`: keep Linux WeChat from always thinking it is foreground.
-- `wsl-app-notify-bridge` and `wsl-app-notification-daemon`: forward Linux notification signals to Windows.
+- `wsl-app-notify-bridge` and `wsl-app-notification-daemon`: forward Linux notification signals to Windows. D-Bus/X11 signals use the normal popup setting; file-activity fallback defaults to taskbar flash only.
 - `wsl-app-badge-notify-watch`: optional unread badge watcher for notification experiments.
 - `scripts/doctor.ps1`: read-only public health check for WSL, helper files, dependencies, WeChat command detection, and Windows file links.
 

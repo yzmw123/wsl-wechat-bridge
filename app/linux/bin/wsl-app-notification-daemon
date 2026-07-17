@@ -21,7 +21,9 @@ FILE_WATCH_INTERVAL_SECONDS = 2
 FILE_NOTICE_DEBOUNCE_SECONDS = 18
 FILE_NOTICE_IGNORE_SECONDS = 5
 FOCUS_STATE_MAX_AGE_SECONDS = 10
-FILE_NOTICE_MODE = os.environ.get("WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE", "log-only").strip().lower()
+FILE_NOTICE_MODE = os.environ.get("WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE", "flash").strip().lower()
+FILE_NOTICE_ENABLED_MODES = {"1", "true", "yes", "on", "notify", "flash", "flash-only", "taskbar", "taskbar-only"}
+FILE_NOTICE_FLASH_ONLY_MODES = {"flash", "flash-only", "taskbar", "taskbar-only"}
 
 
 def positive_int_env(name, default):
@@ -168,7 +170,7 @@ def windows_foreground_is_wechat_desktop():
         return False
 
 
-def send_windows_notice(reason):
+def send_windows_notice(reason, suppress_popup=False):
     helper = windows_helper_path()
     if not os.path.exists(helper):
         log(f"notice helper not found: {helper}")
@@ -184,17 +186,22 @@ def send_windows_notice(reason):
         "$p = $env:WSL_NOTICE_HELPER; "
         "if ([string]::IsNullOrWhiteSpace($p)) { throw 'WSL_NOTICE_HELPER is empty' }; "
         "$argList = @('-NoLogo','-NoProfile','-STA','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',$p); "
+        "if ($env:WSL_NOTICE_SUPPRESS_POPUP -eq '1') { $argList += '-SuppressPopup' }; "
         "Start-Process -FilePath 'powershell.exe' -WindowStyle Hidden -ArgumentList $argList"
     )
 
     env = os.environ.copy()
     env["WSL_NOTICE_HELPER"] = win_helper
+    if suppress_popup:
+        env["WSL_NOTICE_SUPPRESS_POPUP"] = "1"
     if env.get("WSLENV"):
         env["WSLENV"] = f"{env['WSLENV']}:WSL_NOTICE_HELPER"
     else:
         env["WSLENV"] = "WSL_NOTICE_HELPER"
+    if suppress_popup:
+        env["WSLENV"] = f"{env['WSLENV']}:WSL_NOTICE_SUPPRESS_POPUP"
 
-    log(f"notify reason={reason} helper={helper}")
+    log(f"notify reason={reason} helper={helper} suppress_popup={int(bool(suppress_popup))}")
     try:
         subprocess.Popen(
             [
@@ -285,7 +292,7 @@ def poll_message_activity():
             sample_hash = short_hash("\0".join(os.path.basename(path) for path in changed[:20]))
             log(f"file-activity count={len(changed)} sample_hash={sample_hash}")
             if now - started_at >= FILE_NOTICE_IGNORE_SECONDS and now - last_file_notice_at >= FILE_NOTICE_DEBOUNCE_SECONDS:
-                if FILE_NOTICE_MODE not in ("1", "true", "yes", "on", "notify"):
+                if FILE_NOTICE_MODE not in FILE_NOTICE_ENABLED_MODES:
                     if now - last_file_suppressed_at >= FILE_NOTICE_DEBOUNCE_SECONDS:
                         log(f"file-notice-suppressed=log-only mode={FILE_NOTICE_MODE or 'empty'}")
                         last_file_suppressed_at = now
@@ -296,7 +303,10 @@ def poll_message_activity():
                         last_file_suppressed_at = now
                     return True
                 last_file_notice_at = now
-                send_windows_notice(f"file-activity:count={len(changed)}")
+                send_windows_notice(
+                    f"file-activity:count={len(changed)}",
+                    suppress_popup=FILE_NOTICE_MODE in FILE_NOTICE_FLASH_ONLY_MODES,
+                )
     except Exception as exc:
         log(f"file-watch-error={exc}")
 

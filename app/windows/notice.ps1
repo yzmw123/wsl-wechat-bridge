@@ -2,7 +2,8 @@ param(
     [string]$Title = "",
     [string]$Body = "",
     [string]$FlashTitle = "WeChat Desktop",
-    [int]$DurationMs = 7000
+    [int]$DurationMs = 7000,
+    [switch]$SuppressPopup
 )
 
 $ErrorActionPreference = "Stop"
@@ -288,10 +289,19 @@ public class WslNoActivateNoticeForm : Form {
 
 try {
     $popupEnabled = Get-NoticePopupEnabled
-    Write-NoticeLog "start title_chars=$($Title.Length) body_chars=$($Body.Length) popup=$popupEnabled"
+    $popupSuppressed = [bool]$SuppressPopup
+    if ($popupSuppressed) {
+        Write-NoticeLog "start title_chars=$($Title.Length) body_chars=$($Body.Length) popup=$popupEnabled suppress_popup=True"
+    }
+    else {
+        Write-NoticeLog "start title_chars=$($Title.Length) body_chars=$($Body.Length) popup=$popupEnabled"
+    }
     Flash-TargetWindow -WindowTitle $FlashTitle
-    if ($popupEnabled) {
+    if ($popupEnabled -and -not $popupSuppressed) {
         Show-NoticeWindow -NoticeTitle $Title -NoticeBody $Body -TimeoutMs $DurationMs
+    }
+    elseif ($popupSuppressed) {
+        Write-NoticeLog "popup=suppressed"
     }
     else {
         Write-NoticeLog "popup=disabled"
