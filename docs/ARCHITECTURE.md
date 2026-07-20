@@ -31,7 +31,7 @@ WECHAT_COMMAND=/path/to/wechat
 NOTICE_BRIDGE_ENABLED=1
 FOCUS_WATCH_ENABLED=1
 CLIPBOARD_WATCH_ENABLED=1
-BADGE_WATCH_ENABLED=0
+BADGE_WATCH_ENABLED=1
 BADGE_WATCH_POLL_SECONDS=3
 BADGE_WATCH_IDLE_POLL_SECONDS=10
 WSL_WECHAT_LOG_MAX_BYTES=5242880
@@ -39,7 +39,7 @@ WSL_WECHAT_LOG_BACKUPS=2
 WSL_WECHAT_CLIPBOARD_TTL_SECONDS=3600
 ```
 
-`NOTICE_BRIDGE_ENABLED`, `FOCUS_WATCH_ENABLED`, and `CLIPBOARD_WATCH_ENABLED` default to enabled. `BADGE_WATCH_ENABLED` defaults to disabled because the badge watcher captures and analyzes the WeChat window periodically; enable it only when the lower-cost notification signals are not enough.
+`NOTICE_BRIDGE_ENABLED`, `FOCUS_WATCH_ENABLED`, `CLIPBOARD_WATCH_ENABLED`, and `BADGE_WATCH_ENABLED` default to enabled. The badge watcher periodically analyzes only the left portion of the WeChat window and can be disabled when screenshot polling is not desired.
 
 The installer also creates convenience symlinks in the WSL home directory when the corresponding Windows paths are available:
 
@@ -66,8 +66,8 @@ If users can launch Linux WeChat but cannot type Chinese, check the input packag
 - `winclip2wechat`: writes Windows clipboard text, image, or file URI payloads to the Linux clipboard.
 - `wechatclip2win`: copies nested X11 text clipboard back to Windows.
 - `focus-watch.ps1` and `wsl-app-focus-bridge`: keep Linux WeChat from always thinking it is foreground.
-- `wsl-app-notify-bridge` and `wsl-app-notification-daemon`: forward Linux notification signals to Windows. D-Bus/X11 signals use the normal popup setting; file-activity fallback defaults to taskbar flash only.
-- `wsl-app-badge-notify-watch`: optional unread badge watcher for notification experiments.
+- `wsl-app-notify-bridge` and `wsl-app-notification-daemon`: forward Linux notification signals to Windows. D-Bus/X11 signals use the normal popup setting; broad file activity is diagnostic only by default.
+- `wsl-app-badge-notify-watch`: detects numeric unread badges for taskbar attention while ignoring plain red dots.
 - `scripts/doctor.ps1`: read-only public health check for WSL, helper files, dependencies, WeChat command detection, and Windows file links.
 
 ## Process Lifecycle

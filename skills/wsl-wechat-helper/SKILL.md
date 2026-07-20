@@ -37,7 +37,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Distro Ubuntu-22.
 - Do not stop the active WeChat session unless the user asks to close it, the task is specifically about stuck processes, or a restart is necessary and clearly explained.
 - Avoid broad `pkill -f` cleanup patterns. Prefer installed commands such as `wechat-desktop-stop` or exact process matching.
 - Preserve privacy defaults: logs should record counts, sizes, hashes, PIDs, and states, not clipboard contents, Windows foreground titles, D-Bus notification summaries/bodies, or Windows file paths.
-- Treat `BADGE_WATCH_ENABLED=0` as the default healthy state; the unread badge screenshot watcher is opt-in because it periodically captures the WeChat window.
+- Treat `BADGE_WATCH_ENABLED=1` as the default healthy state. The watcher analyzes the left portion of the WeChat window for numeric unread badges and can be disabled when periodic screenshot analysis is not desired.
 - Normal `wechat-desktop-stop` should use graceful termination and report survivors. Use `--force` only when the user accepts `SIGKILL`.
 - Treat the WSL message `localhost proxy ... NAT mode ...` as benign unless the user asks about networking.
 
@@ -66,7 +66,7 @@ The Xephyr/openbox/tint2 desktop is intentionally fixed to one workspace, `deskt
 
 ### Notification Bridge
 
-The notification bridge should flash the Windows taskbar entry for the nested WeChat Desktop window. The small Windows popup is optional and is disabled by default; the widget's `消息弹窗` checkbox writes `%LOCALAPPDATA%\WslPrivate\launchers\settings.json` with `NoticePopupEnabled`. The bridge primarily trusts WeChat's own notification signals: X11 window changes and a small `org.freedesktop.Notifications` D-Bus daemon on the same session bus as WeChat. A file-activity watcher also watches WeChat message/session storage changes as a fallback; it defaults to `flash`, which sends a flash-only Windows notice and suppresses the popup even if `NoticePopupEnabled` is true. Set `WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE=log-only` only when file-activity flashing is too noisy.
+The notification bridge should flash the Windows taskbar entry for the nested WeChat Desktop window. The small Windows popup is optional and is disabled by default; the widget's `消息弹窗` checkbox writes `%LOCALAPPDATA%\WslPrivate\launchers\settings.json` with `NoticePopupEnabled`. The bridge trusts WeChat's X11/D-Bus signals and the numeric unread badge watcher. Broad WeChat message/session file activity defaults to `log-only` because official accounts, service accounts, muted conversations, cross-device sync, and self-sent messages also change those files.
 
 Use:
 
@@ -78,9 +78,9 @@ wsl -d Ubuntu-22.04 -- wsl-app-notify-bridge-restart
 
 If `--test` logs the request but no taskbar flash appears, read `references/troubleshooting.md` before editing scripts. A missing popup is expected when `NoticePopupEnabled` is false. The working bridge uses a Windows PowerShell `Start-Process` parent command and passes the helper path via `WSLENV=WSL_NOTICE_HELPER`.
 
-If manual `--test` works but real messages do not, check `wsl-app-notify-bridge --status` and `~/.cache/wechat-desktop/notification-daemon.log`. Real alerts should normally show as `dbus-notify`, X11 attention/title signals, new WeChat windows, or `file-activity` followed by `notify reason=file-activity... suppress_popup=1`. D-Bus logs intentionally use lengths and hashes instead of notification summary/body text.
+If manual `--test` works but real messages do not, check `wsl-app-notify-bridge --status`, `~/.cache/wechat-desktop/notification-daemon.log`, and `~/.cache/wechat-desktop/badge-notify-watch.log`. Real alerts should normally show as `dbus-notify`, X11 attention/title signals, new WeChat windows, or `notify reason=numeric-badge`. D-Bus logs intentionally use lengths and hashes instead of notification summary/body text.
 
-The experimental unread badge watcher can be enabled with `BADGE_WATCH_ENABLED=1` in `~/.config/wsl-wechat-bridge/config`. Leave it disabled by default unless the user explicitly wants the extra screenshot-based fallback.
+The unread badge watcher is enabled by default and can be disabled with `BADGE_WATCH_ENABLED=0` in `~/.config/wsl-wechat-bridge/config`. It requires a red badge with interior light digit pixels; plain red dots do not trigger taskbar attention.
 
 ### Focus Bridge
 

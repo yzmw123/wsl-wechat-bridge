@@ -22,6 +22,8 @@ DEFAULT_DISPLAY = ":20"
 DEFAULT_POLL_SECONDS = 3.0
 DEFAULT_IDLE_POLL_SECONDS = 10.0
 DEFAULT_DEBOUNCE_SECONDS = 18.0
+BADGE_INTERIOR_INSET = 2
+MIN_DIGIT_PIXELS = 3
 
 
 def positive_int_env(name: str, default: int) -> int:
@@ -388,7 +390,7 @@ def is_badge_red(pixel: tuple[int, int, int, int]) -> bool:
 
 def is_digit_white(pixel: tuple[int, int, int, int]) -> bool:
     r, g, b, a = pixel
-    return a >= 180 and r >= 235 and g >= 235 and b >= 235
+    return a >= 180 and min(r, g, b) >= 200 and max(r, g, b) - min(r, g, b) <= 30
 
 
 def component_hash(points: Iterable[tuple[int, int]], component: RedComponent | None = None) -> str:
@@ -448,15 +450,20 @@ def find_red_components(image: ImageRGBA, scan_x_max: int | None = None) -> tupl
                 continue
 
             white_pixels = 0
-            for by in range(max(0, y0 - 1), min(height, y1 + 2)):
-                for bx in range(max(0, x0 - 1), min(max_x, x1 + 2)):
+            for by in range(y0 + BADGE_INTERIOR_INSET, y1 - BADGE_INTERIOR_INSET + 1):
+                for bx in range(x0 + BADGE_INTERIOR_INSET, x1 - BADGE_INTERIOR_INSET + 1):
                     if is_digit_white(image.pixel(bx, by)):
                         white_pixels += 1
 
             temp = RedComponent(x0, y0, x1, y1, len(points), white_pixels, "")
             component = dataclasses.replace(temp, mask_hash=component_hash(points, temp))
 
-            if 12 <= box_width <= 26 and 12 <= box_height <= 26 and len(points) >= 80:
+            if (
+                12 <= box_width <= 26
+                and 12 <= box_height <= 26
+                and len(points) >= 80
+                and white_pixels >= MIN_DIGIT_PIXELS
+            ):
                 numeric_badges.append(component)
             elif 5 <= box_width <= 15 and 5 <= box_height <= 15:
                 plain_dots.append(component)

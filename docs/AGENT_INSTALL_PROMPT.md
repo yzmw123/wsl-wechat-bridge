@@ -69,7 +69,7 @@ Work step by step:
    - Confirm `notice.ps1` exists there; it may be a hidden file.
    - Confirm WSL helper commands exist in `/usr/local/bin`, especially `wechat-desktop`, `wechat-desktop-stop`, `winclip2wechat`, and `wechatclip2win`.
    - Confirm Windows file links exist in WSL, such as `~/Windows-C`, `~/Windows-Downloads`, and `~/Windows-Documents`, so Linux WeChat can send files directly from Windows disks and save received files back to Windows folders.
-   - Leave `BADGE_WATCH_ENABLED=0` unless I explicitly ask for the experimental unread badge screenshot watcher.
+   - Leave the numeric unread badge watcher at its default `BADGE_WATCH_ENABLED=1`; set it to `0` only if I ask to disable periodic screenshot analysis.
    - Run:
      `powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Distro <DistroName>`
 

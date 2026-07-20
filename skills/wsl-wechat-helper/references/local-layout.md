@@ -15,7 +15,7 @@ WECHAT_COMMAND=/path/to/wechat
 NOTICE_BRIDGE_ENABLED=1
 FOCUS_WATCH_ENABLED=1
 CLIPBOARD_WATCH_ENABLED=1
-BADGE_WATCH_ENABLED=0
+BADGE_WATCH_ENABLED=1
 BADGE_WATCH_POLL_SECONDS=3
 BADGE_WATCH_IDLE_POLL_SECONDS=10
 WSL_WECHAT_LOG_MAX_BYTES=5242880
@@ -23,7 +23,7 @@ WSL_WECHAT_LOG_BACKUPS=2
 WSL_WECHAT_CLIPBOARD_TTL_SECONDS=3600
 ```
 
-`BADGE_WATCH_ENABLED` is intentionally disabled by default. `wechat-desktop-status` prints the effective defaults so diagnostics can distinguish a disabled optional watcher from a failed one.
+`BADGE_WATCH_ENABLED` is enabled by default. `wechat-desktop-status` prints the effective setting so diagnostics can distinguish a deliberately disabled watcher from a failed one.
 
 ## Nested Desktop
 
@@ -129,9 +129,9 @@ Working behavior:
 - `--test` should return quickly, around 1 second.
 - `--status` should show both `running ... display=:20` and `notification_daemon=running ...`.
 - `~/.cache/wechat-desktop/notice-bridge.log` should show `launch=start-process`.
-- `~/.cache/wechat-desktop/notification-daemon.log` should show `started ...`, `file-watch started ...`, and `file-notice-mode=flash`. It shows `dbus-notify ...` when Linux notifications arrive and `file-activity ...` when the message/session storage watcher sees activity. In default `flash` mode, file activity sends a Windows notice with `suppress_popup=1`, so it flashes the taskbar without showing the optional popup.
+- `~/.cache/wechat-desktop/notification-daemon.log` should show `started ...`, `file-watch started ...`, and `file-notice-mode=log-only`. It shows `dbus-notify ...` when Linux notifications arrive and `file-activity ...` when the message/session storage watcher sees activity. File activity does not send a Windows notice by default.
 - D-Bus notification logs use `app_len`, `app_hash`, `summary_len`, `summary_hash`, and `body_len`; they must not include summary/body text.
-- `%LOCALAPPDATA%\WslPrivate\launchers\notice.log` should show `start`, `title_chars`, `body_chars`, `flashed=1`, `popup=disabled` when popups are off, and later `done`. File-activity fallback notices can show `suppress_popup=True` and `popup=suppressed`.
+- `%LOCALAPPDATA%\WslPrivate\launchers\notice.log` should show `start`, `title_chars`, `body_chars`, `flashed=1`, `popup=disabled` when popups are off, and later `done`.
 - The helper matches Windows titles containing `WeChat Desktop` or `Ubuntu-22.04`.
 - Message popup windows are disabled by default. The widget's `消息弹窗` checkbox controls `%LOCALAPPDATA%\WslPrivate\launchers\settings.json` and the `NoticePopupEnabled` value; taskbar flashing remains enabled either way.
 - The real Windows taskbar title may look like `[WARN:COPY MODE] WeChat Desktop (Ubuntu-22.04)`.
@@ -141,9 +141,9 @@ Implementation gotcha:
 - Passing a Windows path from WSL to Windows PowerShell is fragile.
 - The current working approach passes the helper path through `WSL_NOTICE_HELPER` and exports it with `WSLENV=WSL_NOTICE_HELPER`, then a parent `powershell.exe` calls `Start-Process`.
 - Real WeChat messages may use the standard Linux D-Bus notification interface. The local `wsl-app-notification-daemon` owns `org.freedesktop.Notifications` on WeChat's session bus and forwards those notifications to the Windows helper.
-- Some real messages do not emit D-Bus notifications or X11 window signals. The daemon watches WeChat message/session storage file activity as a best-effort fallback. It does not read message contents; it only logs counts and hashes. Because file writes can include muted groups, official accounts, service accounts, cross-device sync, and self-sent messages, default `flash` mode suppresses popups and uses taskbar flashing only.
-- `WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE=log-only` disables file-activity Windows notices. `WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE=notify` allows file activity to use the normal popup setting. In flash or notify modes, `focus-watch.ps1` writes `%LOCALAPPDATA%\WslPrivate\launchers\focus-watch.state` and the notification daemon suppresses file-activity notices while Windows foreground is WeChat Desktop.
-- The optional `wsl-app-badge-notify-watch` watcher is started only when `BADGE_WATCH_ENABLED=1`. It uses `BADGE_WATCH_POLL_SECONDS` while active and `BADGE_WATCH_IDLE_POLL_SECONDS` when idle.
+- Some real messages do not emit D-Bus notifications or X11 window signals. The daemon watches WeChat message/session storage file activity for diagnosis only. It does not read message contents; it logs counts and hashes. File writes can include muted groups, official accounts, service accounts, cross-device sync, and self-sent messages, so default `log-only` mode does not use them for Windows notices.
+- `WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE=flash` deliberately enables flash-only file-activity notices. `WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE=notify` lets file activity use the normal popup setting. In flash or notify modes, `focus-watch.ps1` writes `%LOCALAPPDATA%\WslPrivate\launchers\focus-watch.state` and the notification daemon suppresses file-activity notices while Windows foreground is WeChat Desktop.
+- `wsl-app-badge-notify-watch` starts by default unless `BADGE_WATCH_ENABLED=0`. It requires light digit pixels inside a numeric-sized red badge, ignores plain red dots, and uses `BADGE_WATCH_POLL_SECONDS` while active plus `BADGE_WATCH_IDLE_POLL_SECONDS` when idle.
 
 ## Focus Bridge
 

@@ -7,6 +7,9 @@ This file tracks repository changes made by agents. Keep entries short and appen
 - Repaired the local Sogou Pinyin 4.2.1 runtime by installing the Ubuntu Qt Quick/QML, gsettings-qt, OpenMP, and Xss libraries omitted from the package metadata; recorded the package post-install behavior and transient diagnostic failures in local learnings.
 - Verification: no missing libraries from `sogoupinyin-service` or watchdog, clean package audit, running `fcitx`/Sogou service/watchdog, no prior loader or IPC errors in the current startup log, `fcitx_state=2`, and `nihao` conversion to UTF-8 `e4 bd a0 e5 a5 bd` (“你好”) in both an isolated GTK entry and WeChat's own search field on display `:20`.
 
+- Prepared all remaining workspace changes for an explicit user-requested commit, including notification watcher updates, the fcitx/Sogou launcher change, focused badge tests, and temporary diagnostic scripts; recorded the PowerShell `rg` wildcard retry.
+- Verification: no credential-pattern matches in the text scan, Bash syntax checks selected by file type, Python syntax checks, 3 focused badge watcher unit tests, and `git diff --check`.
+
 ## 2026-07-17
 
 - Replaced the noisy default file-activity taskbar fallback with the numeric unread badge watcher: broad message/session storage writes are log-only again, while the badge watcher is enabled by default.

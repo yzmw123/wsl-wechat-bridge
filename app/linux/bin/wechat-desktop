@@ -310,7 +310,7 @@ export GTK_IM_MODULE=fcitx
 export QT_IM_MODULE=fcitx
 export SDL_IM_MODULE=fcitx
 export INPUT_METHOD=fcitx
-export XIM_PROGRAM=fcitx5
+export XIM_PROGRAM=fcitx
 export QT_QPA_PLATFORM=xcb
 export QT_XCB_NO_XI2=1
 
@@ -405,7 +405,7 @@ start_notice_bridge() {
 start_badge_watch() {
   local poll_seconds idle_poll_seconds args=()
 
-  if ! config_truthy BADGE_WATCH_ENABLED "0"; then
+  if ! config_truthy BADGE_WATCH_ENABLED "1"; then
     return 0
   fi
 
@@ -460,10 +460,9 @@ start_clipboard_watch() {
   wscript.exe //B "$(wslpath -w "$helper")" >/dev/null 2>&1 || true
 }
 
-if ! pgrep -u "$uid" -x fcitx5 >/dev/null 2>&1; then
+if ! pgrep -u "$uid" -x fcitx >/dev/null 2>&1; then
   rotate_log "$state_dir/fcitx5.log"
-  nohup fcitx5 --disable=wayland --disable=waylandim -d --replace --verbose '*'=0 \
-    >"$state_dir/fcitx5.log" 2>&1 || true
+  DISPLAY="$display" nohup fcitx -d --replace >"$state_dir/fcitx5.log" 2>&1 || true
 fi
 
 start_notice_bridge

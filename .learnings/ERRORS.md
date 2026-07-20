@@ -69,6 +69,39 @@ Retry with `GDK_BACKEND=x11` and an empty `WAYLAND_DISPLAY`, and validate that Z
 
 ---
 
+## [ERR-20260720-003] powershell-rg-glob
+
+**Logged**: 2026-07-20T17:15:00+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: tests
+
+### Summary
+A repository secret scan passed a Bash-style `tmp-*.sh` path directly to `rg` under PowerShell.
+
+### Error
+```
+rg: tmp-*.sh: The filename, directory name, or volume label syntax is incorrect. (os error 123)
+```
+
+### Context
+- The scan covered tracked source directories and top-level temporary shell scripts before an all-files commit.
+- PowerShell did not expand the wildcard into file paths acceptable to this `rg` invocation.
+
+### Suggested Fix
+Use `rg --glob 'tmp-*.sh'` from the repository root instead of passing the wildcard as a path.
+
+### Metadata
+- Reproducible: yes
+- Related Files: none
+- See Also: ERR-20260715-003
+
+### Resolution
+- **Resolved**: 2026-07-20T17:15:00+08:00
+- **Notes**: Retried the scan with `rg` glob filtering.
+
+---
+
 ## [ERR-20260715-001] review-tool-selection
 
 **Logged**: 2026-07-15T10:10:27+08:00
@@ -167,12 +200,12 @@ Use parser-safe PowerShell interpolation, select files by shebang before syntax 
 - Reproducible: yes
 - Related Files: app/linux/bin/wechat-desktop, app/linux/bin/wechat-desktop-status
 - See Also: ERR-20260715-002
-- Recurrence-Count: 6
-- Last-Seen: 2026-07-20T17:04:00+08:00
+- Recurrence-Count: 7
+- Last-Seen: 2026-07-20T17:20:00+08:00
 
 ### Resolution
 - **Resolved**: 2026-07-15T11:30:00+08:00
-- **Notes**: Corrected the code and reran PowerShell parser, Bash syntax, Python compile, and runtime checks successfully. On later helper changes, dense `wsl bash -lc` one-liners failed again. Escaped quotes around Bash `$HOME` once produced a root-level log path, and later process/environment/package probes let PowerShell expand Bash command substitutions, loop variables, and `dpkg-query` format variables before WSL. Retries should use fixed paths/PIDs, default command formats, direct executable arguments, or encoded scripts with no cross-shell variable interpolation.
+- **Notes**: Corrected the code and reran PowerShell parser, Bash syntax, Python compile, and runtime checks successfully. On later helper changes, dense `wsl bash -lc` one-liners failed again. Escaped quotes around Bash `$HOME` once produced a root-level log path, later probes let PowerShell expand Bash/dpkg variables before WSL, and a later bulk `bash -n` list again included an extensionless Python helper. Retries should select interpreters by shebang, use fixed paths/PIDs, default command formats, direct executable arguments, or encoded scripts with no cross-shell variable interpolation.
 
 ---
 

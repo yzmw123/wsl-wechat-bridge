@@ -63,8 +63,8 @@ wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-watch-hi
 # Unified clipboard watcher log
 Get-Content "$env:LOCALAPPDATA\WslPrivate\launchers\clipboard-watch.log" -Tail 80
 
-# Enable the optional unread badge watcher
-wsl -d Ubuntu-22.04 -- bash -lc "mkdir -p ~/.config/wsl-wechat-bridge; grep -q '^BADGE_WATCH_ENABLED=' ~/.config/wsl-wechat-bridge/config 2>/dev/null && sed -i 's/^BADGE_WATCH_ENABLED=.*/BADGE_WATCH_ENABLED=1/' ~/.config/wsl-wechat-bridge/config || printf 'BADGE_WATCH_ENABLED=1\n' >> ~/.config/wsl-wechat-bridge/config"
+# Disable the default numeric unread badge watcher when screenshot polling is not desired
+wsl -d Ubuntu-22.04 -- bash -lc "mkdir -p ~/.config/wsl-wechat-bridge; grep -q '^BADGE_WATCH_ENABLED=' ~/.config/wsl-wechat-bridge/config 2>/dev/null && sed -i 's/^BADGE_WATCH_ENABLED=.*/BADGE_WATCH_ENABLED=0/' ~/.config/wsl-wechat-bridge/config || printf 'BADGE_WATCH_ENABLED=0\n' >> ~/.config/wsl-wechat-bridge/config"
 
 # Check Windows file links for direct file sending from Linux WeChat
 wsl -d Ubuntu-22.04 -- bash -lc "ls -ld ~/Windows-* /mnt/c 2>/dev/null"

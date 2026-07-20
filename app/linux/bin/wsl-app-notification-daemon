@@ -21,7 +21,7 @@ FILE_WATCH_INTERVAL_SECONDS = 2
 FILE_NOTICE_DEBOUNCE_SECONDS = 18
 FILE_NOTICE_IGNORE_SECONDS = 5
 FOCUS_STATE_MAX_AGE_SECONDS = 10
-FILE_NOTICE_MODE = os.environ.get("WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE", "flash").strip().lower()
+FILE_NOTICE_MODE = os.environ.get("WSL_WECHAT_FILE_ACTIVITY_NOTICE_MODE", "log-only").strip().lower()
 FILE_NOTICE_ENABLED_MODES = {"1", "true", "yes", "on", "notify", "flash", "flash-only", "taskbar", "taskbar-only"}
 FILE_NOTICE_FLASH_ONLY_MODES = {"flash", "flash-only", "taskbar", "taskbar-only"}
 

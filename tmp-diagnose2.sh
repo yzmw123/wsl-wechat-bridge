@@ -1,0 +1,12 @@
+#!/bin/bash
+echo "===== fcitx 进程 #5995 的 DISPLAY (从 /proc/5995/environ) ====="
+cat /proc/5995/environ 2>/dev/null | tr '\0' '\n' | grep -E "^DISPLAY=" || echo "(进程不在)"
+echo ""
+echo "===== fcitx 进程 #31063 的 DISPLAY ====="
+cat /proc/31063/environ 2>/dev/null | tr '\0' '\n' | grep -E "^DISPLAY=" || echo "(进程不在)"
+echo ""
+echo "===== fcitx5 进程 #9197 的 DISPLAY ====="
+cat /proc/9197/environ 2>/dev/null | tr '\0' '\n' | grep -E "^DISPLAY=" || echo "(进程不在)"
+echo ""
+echo "===== 微信 #30940 的 DISPLAY ====="
+cat /proc/30940/environ 2>/dev/null | tr '\0' '\n' | grep -E "^DISPLAY=" || echo "(进程不在)"
