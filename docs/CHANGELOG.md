@@ -2,7 +2,16 @@
 
 This file tracks repository changes made by agents. Keep entries short and append newest entries near the top.
 
+## 2026-07-20
+
+- Repaired the local Sogou Pinyin 4.2.1 runtime by installing the Ubuntu Qt Quick/QML, gsettings-qt, OpenMP, and Xss libraries omitted from the package metadata; recorded the package post-install behavior and transient diagnostic failures in local learnings.
+- Verification: no missing libraries from `sogoupinyin-service` or watchdog, clean package audit, running `fcitx`/Sogou service/watchdog, no prior loader or IPC errors in the current startup log, `fcitx_state=2`, and `nihao` conversion to UTF-8 `e4 bd a0 e5 a5 bd` (“你好”) in both an isolated GTK entry and WeChat's own search field on display `:20`.
+
 ## 2026-07-17
+
+- Replaced the noisy default file-activity taskbar fallback with the numeric unread badge watcher: broad message/session storage writes are log-only again, while the badge watcher is enabled by default.
+- Tightened badge classification to require light digit pixels inside the red component, so plain official-account, service-account, and muted-conversation dots do not trigger taskbar attention; added focused synthetic regression tests and updated user/agent documentation.
+- Verification pending: Python unit tests and compile checks, Bash syntax checks, supplied screenshot analysis, install/hash checks, helper-only restart, runtime status/log checks, doctor, and `git diff --check`.
 
 - Restored file-activity message fallback as taskbar-flash-only by default, so disabling the `消息弹窗` widget option no longer removes taskbar flashing for messages that do not emit D-Bus/X11 notification signals.
 - Added a `notice.ps1` popup suppression switch for fallback notices, updated README/helper docs to document the separate popup and taskbar-flash behavior, and recorded the extensionless Python helper smoke-test loading gotcha in local learnings.

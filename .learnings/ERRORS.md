@@ -4,6 +4,71 @@ Command failures and integration errors.
 
 ---
 
+## [ERR-20260720-001] collect-status-timeout
+
+**Logged**: 2026-07-20T16:48:04+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: config
+
+### Summary
+The WSL WeChat status collector did not finish within the initial 30-second command timeout.
+
+### Error
+```
+command timed out after 34137 milliseconds
+```
+
+### Context
+- Ran the read-only `collect-status.ps1` helper before diagnosing a WSL input-method failure.
+- The Ubuntu-22.04 distribution was running, so the slow probe will be isolated or retried with a larger timeout.
+
+### Suggested Fix
+Retry with a larger timeout and split out individual WSL probes if the collector still hangs.
+
+### Metadata
+- Reproducible: unknown
+- Related Files: C:\Users\Administrator\.codex\skills\wsl-wechat-helper\scripts\collect-status.ps1
+
+### Resolution
+- **Resolved**: 2026-07-20T16:49:03+08:00
+- **Notes**: The retry completed in about 10 seconds; the initial timeout was transient.
+
+---
+
+## [ERR-20260720-002] nested-zenity-window-not-found
+
+**Logged**: 2026-07-20T16:57:00+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: tests
+
+### Summary
+The first end-to-end Sogou test could not find its temporary Zenity input window on nested display `:20`.
+
+### Error
+```
+You cannot call a method on a null-valued expression.
+```
+
+### Context
+- Zenity was started with `DISPLAY=:20`, but inherited WSLg Wayland environment variables.
+- The test searched only the nested X11 display and received no window ID.
+- The focus watcher was restored in the PowerShell `finally` block.
+
+### Suggested Fix
+Retry with `GDK_BACKEND=x11` and an empty `WAYLAND_DISPLAY`, and validate that Zenity is installed and visible before interacting with it.
+
+### Metadata
+- Reproducible: unknown
+- Related Files: none
+
+### Resolution
+- **Resolved**: 2026-07-20T17:01:00+08:00
+- **Notes**: Forced GTK onto X11, treated the single `xdotool` result as a full numeric ID instead of indexing its first character, and completed the isolated input test successfully.
+
+---
+
 ## [ERR-20260715-001] review-tool-selection
 
 **Logged**: 2026-07-15T10:10:27+08:00
@@ -102,12 +167,12 @@ Use parser-safe PowerShell interpolation, select files by shebang before syntax 
 - Reproducible: yes
 - Related Files: app/linux/bin/wechat-desktop, app/linux/bin/wechat-desktop-status
 - See Also: ERR-20260715-002
-- Recurrence-Count: 2
-- Last-Seen: 2026-07-15T15:00:00+08:00
+- Recurrence-Count: 6
+- Last-Seen: 2026-07-20T17:04:00+08:00
 
 ### Resolution
 - **Resolved**: 2026-07-15T11:30:00+08:00
-- **Notes**: Corrected the code and reran PowerShell parser, Bash syntax, Python compile, and runtime checks successfully. On the later workspace-layout change, dense `wsl bash -lc` one-liners failed again; switched follow-up verification to temporary files/scripts instead.
+- **Notes**: Corrected the code and reran PowerShell parser, Bash syntax, Python compile, and runtime checks successfully. On later helper changes, dense `wsl bash -lc` one-liners failed again. Escaped quotes around Bash `$HOME` once produced a root-level log path, and later process/environment/package probes let PowerShell expand Bash command substitutions, loop variables, and `dpkg-query` format variables before WSL. Retries should use fixed paths/PIDs, default command formats, direct executable arguments, or encoded scripts with no cross-shell variable interpolation.
 
 ---
 
