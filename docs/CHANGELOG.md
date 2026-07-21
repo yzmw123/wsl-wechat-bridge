@@ -2,6 +2,12 @@
 
 This file tracks repository changes made by agents. Keep entries short and append newest entries near the top.
 
+## 2026-07-21
+
+- Fixed severe Sogou Pinyin latency caused by an unmounted `/dev/mqueue` and stale per-session IPC queues. The launcher now mounts the queue filesystem when needed, stops exact orphan Sogou helpers, removes only current-user/current-display queues, records its managed fcitx PID, and the stop command gracefully exits that input session and removes its queues.
+- Extended `wechat-desktop-status` and the doctor with fcitx/Sogou process, message-queue mount, queue-count, runtime-library, and engine-aware checks; aligned dependency installation and input-method documentation with fcitx4/Sogou while retaining `fcitx-pinyin` as the new-install fallback.
+- Verification: Bash and PowerShell syntax checks, clean deploy, scoped stop/dry-run cleanup, auto-mount after explicitly unmounting `/dev/mqueue`, no current `sendmq`/`mq_open`/loader errors, doctor with no issues, and 35 automated `nihao`→“你好” conversions across initial, restart, and auto-mount sessions with zero failures, zero queued bytes, and steady-state latency of 120–150 ms.
+
 ## 2026-07-20
 
 - Repaired the local Sogou Pinyin 4.2.1 runtime by installing the Ubuntu Qt Quick/QML, gsettings-qt, OpenMP, and Xss libraries omitted from the package metadata; recorded the package post-install behavior and transient diagnostic failures in local learnings.

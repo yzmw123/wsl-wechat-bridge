@@ -11,7 +11,8 @@ usage() {
 Usage: wechat-desktop-stop [--force] [--dry-run]
 
 Stops the nested WeChat Desktop session: Linux WeChat, Xephyr, openbox,
-tint2, notification helpers, and Windows focus/clipboard watchers.
+tint2, its managed input method, notification helpers, and Windows
+focus/clipboard watchers.
 
 Options:
   --force    Use SIGKILL after a short graceful shutdown attempt.
@@ -86,6 +87,27 @@ pid_from_file() {
   printf '%s\n' "$pid"
 }
 
+sogou_pids() {
+  local proc pid owner exe
+  for proc in /proc/[0-9]*; do
+    pid="${proc#/proc/}"
+    owner="$(stat -c %u "$proc" 2>/dev/null || true)"
+    [ "$owner" = "$uid" ] || continue
+    exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
+    case "$exe" in
+      /opt/sogoupinyin/files/bin/sogoupinyin-service|/opt/sogoupinyin/files/bin/sogoupinyin-watchdog)
+        printf '%s\n' "$pid"
+        ;;
+    esac
+  done
+}
+
+managed_fcitx_pid="$(pid_from_file "$state_dir/fcitx.pid" '(^|/)fcitx([[:space:]]|$)' | head -n 1)"
+managed_input=0
+if [ -n "$managed_fcitx_pid" ]; then
+  managed_input=1
+fi
+
 pids_to_stop() {
   {
     pid_from_file "$state_dir/xephyr.pid" "Xephyr .*${display}"
@@ -109,7 +131,36 @@ pids_to_stop() {
       awk '/bash \/usr\/local\/bin\/wsl-app-notify-bridge$/ { print $1 }'
     ps -u "$uid" -o pid=,args= |
       awk '/wsl-app-notification-daemon/ && !/py_compile/ { print $1 }'
+    if [ "$managed_input" -eq 1 ]; then
+      if kill -0 "$managed_fcitx_pid" 2>/dev/null; then
+        printf '%s\n' "$managed_fcitx_pid"
+      fi
+      sogou_pids
+    fi
   } | awk 'NF && !seen[$1]++ { print $1 }'
+}
+
+cleanup_sogou_queues() {
+  local queue queue_pattern
+
+  if pgrep -u "$uid" -x fcitx >/dev/null 2>&1 || [ -n "$(sogou_pids)" ]; then
+    return 0
+  fi
+
+  if ! mountpoint -q /dev/mqueue 2>/dev/null; then
+    sudo -n mkdir -p /dev/mqueue >/dev/null 2>&1 || return 0
+    sudo -n mount -t mqueue none /dev/mqueue >/dev/null 2>&1 ||
+      mountpoint -q /dev/mqueue 2>/dev/null || return 0
+  fi
+
+  queue_pattern="SOGOUPINYIN-SOGOU-IME-IPC-MQ-*-${uid}-${display_num}"
+  while IFS= read -r queue; do
+    [ -n "$queue" ] || continue
+    rm -f -- "$queue" 2>/dev/null || true
+  done < <(
+    find /dev/mqueue -mindepth 1 -maxdepth 1 -user "$uid" \
+      -name "$queue_pattern" -print 2>/dev/null
+  )
 }
 
 stop_windows_helper() {
@@ -140,6 +191,11 @@ stop_windows_helper "stop-clipboard-watch.cmd"
 
 if xdpyinfo -display "$display" >/dev/null 2>&1; then
   wmctrl -cx wechat.wechat >/dev/null 2>&1 || true
+  sleep 1
+fi
+
+if [ "$managed_input" -eq 1 ] && command -v fcitx-remote >/dev/null 2>&1; then
+  DISPLAY="$display" fcitx-remote -e >/dev/null 2>&1 || true
   sleep 1
 fi
 
@@ -191,9 +247,12 @@ rm -f \
   "$state_dir/notification-daemon.pid" \
   "$state_dir/focus-sink.pid" \
   "$state_dir/badge-notify-watch.pid" \
+  "$state_dir/fcitx.pid" \
   "$state_dir/notice-bridge.seen" \
   "/tmp/.X${display_num}-lock" \
   "/tmp/.X11-unix/X${display_num}" \
   2>/dev/null || true
+
+cleanup_sogou_queues
 
 printf 'stopped display=%s\n' "$display"

@@ -122,7 +122,7 @@ Clipboard payload files are temporary. They live under a private runtime/cache d
 
 ### Chinese Input Method
 
-Fresh WSL/Ubuntu installs usually do not have Chinese input ready for Linux GUI apps. `wechat-desktop` exports fcitx5 input-method environment variables and starts `fcitx5`, but the distro still needs Chinese engine packages such as `fcitx5-chinese-addons` and `fcitx5-pinyin`. If Linux WeChat cannot type Chinese, check those packages and `~/.cache/wechat-desktop/fcitx5.log` first.
+Fresh WSL/Ubuntu installs usually do not have Chinese input ready for Linux GUI apps. `wechat-desktop` exports fcitx input-method environment variables and starts fcitx4, with `fcitx-pinyin` as the baseline engine and Sogou Pinyin 4.x supported when installed. Sogou also needs `/dev/mqueue`; the launcher mounts it when possible and removes stale queues scoped to the current uid/display. If Chinese input is missing or slow, check `wechat-desktop-status` and `~/.cache/wechat-desktop/fcitx5.log` (legacy filename), and verify repeated conversion latency rather than only one successful conversion.
 
 ### Windows File Links
 

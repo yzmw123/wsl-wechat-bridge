@@ -10,6 +10,33 @@ powershell -ExecutionPolicy Bypass -File .\skills\wsl-wechat-helper\scripts\coll
 
 The collector redacts legacy titles, notification summaries/bodies, and clipboard paths from old logs. Then use targeted commands from `commands.md`.
 
+## Sogou Input Is Severely Delayed
+
+If English typing is responsive but switching to Sogou makes each character take a long time, inspect the managed input session first:
+
+```powershell
+wsl -d Ubuntu-22.04 -- wechat-desktop-status
+wsl -d Ubuntu-22.04 -- tail -n 80 ~/.cache/wechat-desktop/fcitx5.log
+```
+
+Healthy Sogou startup has `mqueue_mounted=1`, running fcitx/Sogou PIDs, and a small current `sogou_queue_count`. Errors such as `can't open sendmq`, `mq_open failed`, or `Too many open files` usually mean `/dev/mqueue` was unavailable or old Sogou queues survived a prior session.
+
+Use the installed lifecycle commands to repair the scoped session:
+
+```powershell
+wsl -d Ubuntu-22.04 -- wechat-desktop-stop
+wsl -d Ubuntu-22.04 -- wechat-desktop
+```
+
+The launcher mounts `/dev/mqueue` with non-interactive sudo when possible and removes only current-user/current-display Sogou queues before starting a managed fcitx session. If the log says the mount could not be created, run once in WSL:
+
+```bash
+sudo mkdir -p /dev/mqueue
+sudo mount -t mqueue none /dev/mqueue
+```
+
+After repair, verify several conversions in the real WeChat field with bounded latency; one successful conversion is not enough to rule out an IPC backlog. Avoid deleting unrelated files under `/dev/mqueue` or broadly killing every input-method process.
+
 ## Notification Test Does Not Flash Taskbar
 
 Run:

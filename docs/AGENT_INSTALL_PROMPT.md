@@ -46,8 +46,8 @@ Work step by step:
 2. Prepare the Ubuntu/WSL distro.
    - Choose the distro name, defaulting to `Ubuntu-22.04` if present.
    - Update package metadata.
-   - Install required helper packages for this bridge, such as `x11-utils`, `x11-apps`, `xclip`, `wmctrl`, `xdotool`, `xserver-xephyr`, `openbox`, `tint2`, `dbus-x11`, `fcitx5`, `fcitx5-chinese-addons`, `fcitx5-pinyin`, `python3`, `python3-dbus`, and `python3-gi`.
-   - Remember that a fresh WSL/Ubuntu distro usually has no usable Chinese input method for Linux GUI apps. Do not skip the fcitx5 Chinese engine packages; plain `fcitx5` alone may not be enough for pinyin input.
+   - Install required helper packages for this bridge, such as `x11-utils`, `x11-apps`, `xclip`, `wmctrl`, `xdotool`, `xserver-xephyr`, `openbox`, `tint2`, `dbus-x11`, `fcitx`, `fcitx-pinyin`, `python3`, `python3-dbus`, and `python3-gi`.
+   - Remember that a fresh WSL/Ubuntu distro usually has no usable Chinese input method for Linux GUI apps. For Sogou Pinyin 4.x, also verify its Qt Quick/QML, gsettings-qt, OpenMP, and Xss runtime packages and make sure `/dev/mqueue` can be mounted.
    - If package names differ for the distro, adapt and explain.
 
 3. Install or update official Linux WeChat.
@@ -79,7 +79,7 @@ Work step by step:
    - Start Linux WeChat:
      `wsl -d <DistroName> -- wechat-desktop`
    - Ask me to scan the WeChat login QR code if needed.
-   - Ask me to test typing Chinese in a Linux WeChat chat box. If Chinese input does not work, inspect `fcitx5`, `fcitx5-chinese-addons`, `fcitx5-pinyin`, and the environment variables exported by `wechat-desktop` before blaming WeChat.
+   - Ask me to test repeated Chinese conversions in a Linux WeChat chat box, including latency rather than only one successful conversion. If Chinese input does not work or becomes slow, inspect fcitx/Sogou processes, `/dev/mqueue`, the Sogou queues reported by `wechat-desktop-status`, `~/.cache/wechat-desktop/fcitx5.log`, and the environment variables exported by `wechat-desktop` before blaming WeChat.
    - Check status:
      `wsl -d <DistroName> -- wechat-desktop-status`
      `powershell -NoProfile -STA -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\WslPrivate\launchers\clipboard-watch.ps1" -Status`

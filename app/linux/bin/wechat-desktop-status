@@ -13,6 +13,23 @@ if [ -z "$display" ]; then
 fi
 
 uid="$(id -u)"
+display_num="${display#:}"
+display_num="${display_num%%.*}"
+
+sogou_pids() {
+  local proc pid owner exe
+  for proc in /proc/[0-9]*; do
+    pid="${proc#/proc/}"
+    owner="$(stat -c %u "$proc" 2>/dev/null || true)"
+    [ "$owner" = "$uid" ] || continue
+    exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
+    case "$exe" in
+      /opt/sogoupinyin/files/bin/sogoupinyin-service|/opt/sogoupinyin/files/bin/sogoupinyin-watchdog)
+        printf '%s\n' "$pid"
+        ;;
+    esac
+  done
+}
 
 read_config_value() {
   local key="$1" line value
@@ -88,9 +105,27 @@ badge_pids="$(
     tr '\n' ' ' |
     sed 's/[[:space:]]*$//'
 )"
+fcitx_pids="$(pgrep -u "$uid" -x fcitx 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+sogou_process_pids="$(sogou_pids | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+
+if mountpoint -q /dev/mqueue 2>/dev/null; then
+  mqueue_mounted=1
+  sogou_queue_count="$(
+    find /dev/mqueue -mindepth 1 -maxdepth 1 -user "$uid" \
+      -name "SOGOUPINYIN-SOGOU-IME-IPC-MQ-*-${uid}-${display_num}" \
+      -printf '.' 2>/dev/null | wc -c
+  )"
+else
+  mqueue_mounted=0
+  sogou_queue_count=0
+fi
 
 printf 'wechat_pids=%s\n' "${wechat_pids:-none}"
 printf 'xephyr_pids=%s\n' "${xephyr_pids:-none}"
+printf 'fcitx_pids=%s\n' "${fcitx_pids:-none}"
+printf 'sogou_pids=%s\n' "${sogou_process_pids:-none}"
+printf 'mqueue_mounted=%s\n' "$mqueue_mounted"
+printf 'sogou_queue_count=%s\n' "$sogou_queue_count"
 printf 'notice_bridge_pids=%s\n' "${bridge_pids:-none}"
 printf 'notification_daemon_pids=%s\n' "${notification_daemon_pids:-none}"
 printf 'badge_watch_pids=%s\n' "${badge_pids:-none}"

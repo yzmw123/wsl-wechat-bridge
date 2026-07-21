@@ -14,6 +14,70 @@ chmod 700 "$state_dir" 2>/dev/null || true
 printf '%s\n' "$display" >"$state_dir/display"
 uid="$(id -u)"
 
+sogou_installed() {
+  dpkg-query -W -f='${Status}\n' sogoupinyin 2>/dev/null |
+    grep -qx 'install ok installed'
+}
+
+sogou_pids() {
+  local proc pid owner exe
+  for proc in /proc/[0-9]*; do
+    pid="${proc#/proc/}"
+    owner="$(stat -c %u "$proc" 2>/dev/null || true)"
+    [ "$owner" = "$uid" ] || continue
+    exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
+    case "$exe" in
+      /opt/sogoupinyin/files/bin/sogoupinyin-service|/opt/sogoupinyin/files/bin/sogoupinyin-watchdog)
+        printf '%s\n' "$pid"
+        ;;
+    esac
+  done
+}
+
+prepare_sogou_ipc() {
+  local queue queue_pattern
+  local -a orphaned_pids=()
+
+  sogou_installed || return 0
+
+  mapfile -t orphaned_pids < <(sogou_pids)
+  if [ "${#orphaned_pids[@]}" -gt 0 ]; then
+    printf 'stopping orphaned Sogou processes: %s\n' "${orphaned_pids[*]}"
+    kill -TERM "${orphaned_pids[@]}" 2>/dev/null || true
+    sleep 1
+    for queue in "${orphaned_pids[@]}"; do
+      if kill -0 "$queue" 2>/dev/null; then
+        printf 'warning: Sogou process %s survived SIGTERM; IPC cleanup skipped\n' "$queue"
+        return 0
+      fi
+    done
+  fi
+
+  if ! mountpoint -q /dev/mqueue 2>/dev/null; then
+    if ! sudo -n mkdir -p /dev/mqueue >/dev/null 2>&1 ||
+       ! sudo -n mount -t mqueue none /dev/mqueue >/dev/null 2>&1; then
+      if ! mountpoint -q /dev/mqueue 2>/dev/null; then
+        printf 'warning: /dev/mqueue is unavailable; run: sudo mkdir -p /dev/mqueue && sudo mount -t mqueue none /dev/mqueue\n'
+        return 0
+      fi
+    fi
+    printf 'mounted /dev/mqueue for Sogou IPC\n'
+  fi
+
+  queue_pattern="SOGOUPINYIN-SOGOU-IME-IPC-MQ-*-${uid}-${display_num}"
+  while IFS= read -r queue; do
+    [ -n "$queue" ] || continue
+    if rm -f -- "$queue" 2>/dev/null; then
+      printf 'removed stale Sogou queue: %s\n' "${queue##*/}"
+    else
+      printf 'warning: could not remove stale Sogou queue: %s\n' "${queue##*/}"
+    fi
+  done < <(
+    find /dev/mqueue -mindepth 1 -maxdepth 1 -user "$uid" \
+      -name "$queue_pattern" -print 2>/dev/null
+  )
+}
+
 read_config_value() {
   local key="$1" line value
   [ -r "$config_file" ] || return 1
@@ -462,7 +526,17 @@ start_clipboard_watch() {
 
 if ! pgrep -u "$uid" -x fcitx >/dev/null 2>&1; then
   rotate_log "$state_dir/fcitx5.log"
-  DISPLAY="$display" nohup fcitx -d --replace >"$state_dir/fcitx5.log" 2>&1 || true
+  rm -f "$state_dir/fcitx.pid"
+  prepare_sogou_ipc >"$state_dir/fcitx5.log" 2>&1 || true
+  DISPLAY="$display" nohup fcitx -d --replace >>"$state_dir/fcitx5.log" 2>&1 || true
+  for _ in $(seq 1 20); do
+    fcitx_pid="$(pgrep -u "$uid" -x fcitx 2>/dev/null | head -n 1 || true)"
+    if [ -n "$fcitx_pid" ]; then
+      printf '%s\n' "$fcitx_pid" >"$state_dir/fcitx.pid"
+      break
+    fi
+    sleep 0.05
+  done
 fi
 
 start_notice_bridge

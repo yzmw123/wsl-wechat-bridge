@@ -55,9 +55,9 @@ These links let Linux WeChat's file picker send files directly from Windows disk
 
 ## Chinese Input
 
-Fresh WSL/Ubuntu installs usually do not include a Chinese input method usable by Linux GUI apps. `wechat-desktop` exports fcitx5-related input-method variables and starts `fcitx5`, while the installer and doctor expect the distro to have `fcitx5`, `fcitx5-chinese-addons`, and `fcitx5-pinyin`.
+Fresh WSL/Ubuntu installs usually do not include a Chinese input method usable by Linux GUI apps. `wechat-desktop` exports fcitx input-method variables and starts fcitx4, while the installer and doctor expect the distro to have `fcitx` and `fcitx-pinyin`. An installed Sogou Pinyin 4.x engine is also supported.
 
-If users can launch Linux WeChat but cannot type Chinese, check the input packages and `~/.cache/wechat-desktop/fcitx5.log` before debugging WeChat itself.
+Sogou uses POSIX message queues. Before starting an input method managed by this project, the launcher mounts `/dev/mqueue` with non-interactive sudo when needed, stops exact orphan Sogou service/watchdog processes, and removes only queues owned by the current uid and nested display. The managed fcitx PID is recorded so the stop command can shut down and clean up only this session. Check `wechat-desktop-status` and `~/.cache/wechat-desktop/fcitx5.log` (legacy filename) before debugging WeChat itself.
 
 ## Components
 
@@ -72,9 +72,9 @@ If users can launch Linux WeChat but cannot type Chinese, check the input packag
 
 ## Process Lifecycle
 
-`wechat-desktop` starts helper services without broad process cleanup. It no longer kills existing `wechat`, `WeChatAppEx`, or `fcitx5` processes during startup. `fcitx5` is started only when it is not already running for the user.
+`wechat-desktop` starts helper services without broad process cleanup. It does not kill existing `wechat`, `WeChatAppEx`, or fcitx processes during startup. fcitx is started only when it is not already running for the user; exact orphan Sogou service/watchdog processes are stopped only when no fcitx process exists and a new managed input session is about to start.
 
-`wechat-desktop-stop` collects PIDs from state files plus exact user-process matches. Normal stop sends `SIGTERM` and returns non-zero if anything survives; `--force` is required before `SIGKILL` is used. The stop command also stops the Windows focus and clipboard watchers through their private launcher scripts, with command-line validation before terminating PID-file processes.
+`wechat-desktop-stop` collects PIDs from state files plus exact user-process matches. Normal stop asks its managed fcitx session to exit, sends `SIGTERM` to survivors, removes its Sogou queues, and returns non-zero if anything survives; `--force` is required before `SIGKILL` is used. The stop command also stops the Windows focus and clipboard watchers through their private launcher scripts, with command-line validation before terminating PID-file processes.
 
 ## Logging And Privacy
 

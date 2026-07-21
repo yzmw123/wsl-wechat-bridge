@@ -55,13 +55,14 @@ These make Windows files visible in Linux WeChat's file picker, so users can sen
 - `GTK_IM_MODULE=fcitx`
 - `QT_IM_MODULE=fcitx`
 
-It also starts `fcitx5` and writes logs to `~/.cache/wechat-desktop/fcitx5.log`.
+It also starts fcitx4 and writes logs to `~/.cache/wechat-desktop/fcitx5.log` (the filename is retained for compatibility). When Sogou Pinyin 4.x is installed, startup ensures `/dev/mqueue` is mounted and removes only stale queues for the current uid/display. The managed fcitx PID is stored in `~/.cache/wechat-desktop/fcitx.pid`; normal stop uses it to avoid terminating an unrelated fcitx session.
 
 Fresh WSL/Ubuntu installs still need Chinese input engine packages installed, typically:
 
-- `fcitx5`
-- `fcitx5-chinese-addons`
-- `fcitx5-pinyin`
+- `fcitx`
+- `fcitx-pinyin`
+
+Sogou Pinyin additionally needs `libqt5quickwidgets5`, `libqt5quick5`, `libqt5qml5`, `libgsettings-qt1`, `libgomp1`, and `libxss1` on a minimal Ubuntu install.
 
 ## Linux Commands
 

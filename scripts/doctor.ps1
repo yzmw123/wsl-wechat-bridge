@@ -191,7 +191,7 @@ foreach ($helper in $requiredHelpers) {
 }
 
 Write-Section "Runtime defaults"
-$statusProbe = Invoke-WslBash -Command "wechat-desktop-status 2>/dev/null | grep -E '^(notice_bridge_enabled|focus_watch_enabled|clipboard_watch_enabled|badge_watch_enabled|log_max_bytes|log_backups|clipboard_ttl_seconds)='"
+$statusProbe = Invoke-WslBash -Command "wechat-desktop-status 2>/dev/null | grep -E '^(notice_bridge_enabled|focus_watch_enabled|clipboard_watch_enabled|badge_watch_enabled|log_max_bytes|log_backups|clipboard_ttl_seconds|mqueue_mounted|sogou_queue_count)='"
 if ($statusProbe.ExitCode -eq 0 -and $statusProbe.Output.Count -gt 0) {
     foreach ($line in $statusProbe.Output) {
         Write-Check "ok" "runtime setting" $line
@@ -213,7 +213,7 @@ $dependencies = @(
     @{ Command = "wmctrl"; Package = "wmctrl" },
     @{ Command = "xdotool"; Package = "xdotool" },
     @{ Command = "dbus-launch"; Package = "dbus-x11" },
-    @{ Command = "fcitx5"; Package = "fcitx5" },
+    @{ Command = "fcitx"; Package = "fcitx" },
     @{ Command = "python3"; Package = "python3" },
     @{ Command = "sha256sum"; Package = "coreutils" }
 )
@@ -224,10 +224,43 @@ foreach ($dep in $dependencies) {
 Test-WslCommand -CommandName "tint2" -PackageName "tint2" -Optional
 
 Write-Section "Chinese input method"
-Test-WslPackage -PackageName "fcitx5"
-Test-WslPackage -PackageName "fcitx5-chinese-addons"
-Test-WslPackage -PackageName "fcitx5-pinyin"
-Write-Check "ok" "wechat-desktop input env" "Starts fcitx5 and exports XMODIFIERS/GTK_IM_MODULE/QT_IM_MODULE."
+Test-WslPackage -PackageName "fcitx"
+Write-Check "ok" "wechat-desktop input env" "Starts fcitx and exports XMODIFIERS/GTK_IM_MODULE/QT_IM_MODULE."
+
+$sogouProbe = Invoke-WslBash -Command "dpkg -s sogoupinyin 2>/dev/null | grep -q '^Status: install ok installed$'"
+if ($sogouProbe.ExitCode -eq 0) {
+    Write-Check "ok" "Sogou Pinyin" "installed"
+    $fallbackProbe = Invoke-WslBash -Command "dpkg -s fcitx-pinyin 2>/dev/null | grep -q '^Status: install ok installed$'"
+    if ($fallbackProbe.ExitCode -eq 0) {
+        Write-Check "ok" "fcitx-pinyin fallback" "installed"
+    }
+    else {
+        Write-Check "info" "fcitx-pinyin fallback" "not installed; Sogou Pinyin is the active Chinese engine"
+    }
+    $sogouRuntimePackages = @(
+        "libqt5quickwidgets5",
+        "libqt5quick5",
+        "libqt5qml5",
+        "libgsettings-qt1",
+        "libgomp1",
+        "libxss1"
+    )
+    foreach ($package in $sogouRuntimePackages) {
+        Test-WslPackage -PackageName $package
+    }
+
+    $mqueueProbe = Invoke-WslBash -Command "mountpoint -q /dev/mqueue"
+    if ($mqueueProbe.ExitCode -eq 0) {
+        Write-Check "ok" "Sogou IPC" "/dev/mqueue is mounted"
+    }
+    else {
+        Write-Check "info" "Sogou IPC" "wechat-desktop mounts /dev/mqueue before starting its managed input method."
+    }
+}
+else {
+    Write-Check "info" "Sogou Pinyin" "not installed; fcitx-pinyin remains available"
+    Test-WslPackage -PackageName "fcitx-pinyin"
+}
 
 Write-Section "Python modules"
 $pythonModules = @(

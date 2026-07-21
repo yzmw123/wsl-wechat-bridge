@@ -4,6 +4,80 @@ Command failures and integration errors.
 
 ---
 
+## [ERR-20260721-001] powershell-wsl-verification-wrappers
+
+**Logged**: 2026-07-21T14:03:33+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: tests
+
+### Summary
+Several diagnostic wrappers failed because PowerShell collection semantics and cross-shell path/variable expansion were handled incorrectly.
+
+### Error
+```
+Argument types do not match
+Variable reference is not valid. ':' was not followed by a valid variable name character.
+You cannot call a method on a null-valued expression.
+The term 'id' is not recognized as a name of a cmdlet.
+```
+
+### Context
+- A generic line-range printer passed loosely typed array values to `[Math]::Min`.
+- A parser-check message used `$file:` instead of `${file}:`.
+- A status wrapper applied `-notmatch` to an array instead of testing for an exact line.
+- A Windows path and `$(id -u)` crossed PowerShell/WSL/Bash quoting layers without isolation.
+- One failed screenshot path produced a temporary untracked screenshot in the repository; it was removed after verifying its resolved path was inside the workspace.
+- A final syntax wrapper sent every extensionless Linux helper to `bash -n`, including two Python programs, instead of selecting files by shebang.
+
+### Suggested Fix
+Use simple per-file checks, exact collection membership (`-contains`), known `/mnt/<drive>/...` paths, and base64-encoded Bash scripts when non-trivial commands must cross PowerShell and WSL.
+
+### Metadata
+- Reproducible: yes
+- Related Files: none
+- Recurrence-Count: 6
+- See Also: ERR-20260715-002, ERR-20260715-003
+
+### Resolution
+- **Resolved**: 2026-07-21T14:03:33+08:00
+- **Notes**: Retried with corrected PowerShell syntax, encoded Bash scripts, and shebang-based script classification; the subsequent syntax, runtime, latency, and cleanup checks completed successfully.
+
+---
+
+## [ERR-20260721-002] doctor-required-unused-fallback-engine
+
+**Logged**: 2026-07-21T14:03:33+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: config
+
+### Summary
+The first updated doctor run incorrectly required `fcitx-pinyin` even when the installed and verified Chinese engine was Sogou Pinyin.
+
+### Error
+```
+[fail] linux package missing: fcitx-pinyin
+[warn] doctor result - 1 issue(s) found.
+```
+
+### Context
+- `fcitx-pinyin` is a useful default fallback for new installs but is not required for a working Sogou Pinyin session.
+- All Sogou runtime libraries, `/dev/mqueue`, fcitx, and repeated conversion checks were healthy.
+
+### Suggested Fix
+Require `fcitx-pinyin` only when Sogou is absent; report it as informational when Sogou is installed.
+
+### Metadata
+- Reproducible: yes
+- Related Files: scripts/doctor.ps1
+
+### Resolution
+- **Resolved**: 2026-07-21T14:03:33+08:00
+- **Notes**: Made the fallback check conditional and reran the doctor successfully with no issues.
+
+---
+
 ## [ERR-20260720-001] collect-status-timeout
 
 **Logged**: 2026-07-20T16:48:04+08:00
