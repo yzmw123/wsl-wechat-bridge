@@ -377,6 +377,9 @@ export INPUT_METHOD=fcitx
 export XIM_PROGRAM=fcitx
 export QT_QPA_PLATFORM=xcb
 export QT_XCB_NO_XI2=1
+if sogou_installed && [ -d /opt/sogoupinyin/files/bin ]; then
+  export PATH="/opt/sogoupinyin/files/bin:$PATH"
+fi
 
 if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
   eval "$(dbus-launch --sh-syntax)"

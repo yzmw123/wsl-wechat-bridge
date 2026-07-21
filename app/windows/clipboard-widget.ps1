@@ -978,6 +978,58 @@ function Invoke-WeChatStop {
     }
 }
 
+function Invoke-SogouInputReset {
+    $stdoutPath = Join-Path ([System.IO.Path]::GetTempPath()) ("wsl-input-reset-{0}.stdout.log" -f [Guid]::NewGuid().ToString("N"))
+    $stderrPath = Join-Path ([System.IO.Path]::GetTempPath()) ("wsl-input-reset-{0}.stderr.log" -f [Guid]::NewGuid().ToString("N"))
+    try {
+        $inputResetButton.Enabled = $false
+        Set-Status "正在重启微信桌面并重置搜狗，请稍候..."
+        [System.Windows.Forms.Application]::DoEvents()
+
+        $process = Start-Process -FilePath "wsl.exe" `
+            -ArgumentList @("-d", $Distro, "--", "wechat-input-reset") `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath `
+            -PassThru
+        while (-not $process.HasExited) {
+            [System.Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 100
+        }
+        $process.WaitForExit()
+        $exitCode = $process.ExitCode
+        $output = @(
+            @(Get-Content -LiteralPath $stdoutPath -ErrorAction SilentlyContinue)
+            @(Get-Content -LiteralPath $stderrPath -ErrorAction SilentlyContinue)
+        )
+        $cleanOutput = Remove-NulText -Lines $output
+        $outputBox.Text = ($cleanOutput -join [Environment]::NewLine)
+        if ($exitCode -eq 0) {
+            if (($cleanOutput -join "`n") -match '(?m)^activation=armed_for_next_input$') {
+                Set-Status "微信桌面已重启；进入输入框后自动启用搜狗" ([System.Drawing.Color]::FromArgb(28, 110, 68))
+            }
+            else {
+                Set-Status "微信桌面与输入法已重启，已切换到搜狗拼音" ([System.Drawing.Color]::FromArgb(28, 110, 68))
+            }
+            Write-WidgetLog "input_reset_ok distro=$Distro"
+        }
+        else {
+            Set-Status "重置输入法失败，退出码 $exitCode" ([System.Drawing.Color]::Firebrick)
+            Set-WidgetPage -Page "runtime"
+            Write-WidgetLog "input_reset_failed code=$exitCode distro=$Distro"
+        }
+    }
+    catch {
+        Set-Status "重置输入法失败：$($_.Exception.Message)" ([System.Drawing.Color]::Firebrick)
+        Set-WidgetPage -Page "runtime"
+        Write-WidgetLog "input_reset_error=$($_.Exception.Message)"
+    }
+    finally {
+        Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+        $inputResetButton.Enabled = $true
+    }
+}
+
 function New-NeoButton {
     param(
         [string]$Text,
@@ -1141,6 +1193,10 @@ $script:ClipboardPagePanel.Controls.Add($startButton)
 $stopButton = New-NeoButton -Text "关闭应用" -X 276 -Y 0 -Width 246 -Height 54
 $stopButton.Add_Click({ Invoke-WeChatStop })
 $script:ClipboardPagePanel.Controls.Add($stopButton)
+
+$inputResetButton = New-NeoButton -Text "重置输入法" -X 18 -Y 66 -Width 504 -Height 54 -Fill $watchWarnColor -TextColor ([System.Drawing.Color]::White)
+$inputResetButton.Add_Click({ Invoke-SogouInputReset })
+$script:ClipboardPagePanel.Controls.Add($inputResetButton)
 
 $watchPanel = New-NeoPanel -X 18 -Y 106 -Width 354 -Height 52 -Radius 22 -Inset
 $script:RuntimePagePanel.Controls.Add($watchPanel)

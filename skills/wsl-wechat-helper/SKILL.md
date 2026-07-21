@@ -54,6 +54,7 @@ Prefer the installed commands from `references/commands.md`:
 ```powershell
 wsl -d Ubuntu-22.04 -- wechat-desktop
 wsl -d Ubuntu-22.04 -- wechat-desktop-status
+wsl -d Ubuntu-22.04 -- wechat-input-reset
 wsl -d Ubuntu-22.04 -- wechat-desktop-stop
 wsl -d Ubuntu-22.04 -- wechat-desktop-stop --force
 ```
@@ -110,7 +111,7 @@ wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-watch-hi
 & "$env:LOCALAPPDATA\WslPrivate\launchers\stop-clipboard-watch.cmd"
 ```
 
-`start-clipboard-widget-hidden.vbs` opens the manual Windows clipboard widget. The widget can preview/edit text, preview images, list copied or dropped files, and then push that payload to the WSL/Linux clipboard by calling `winclip2wechat`. Its `剪贴板` page bottom row has two side-by-side buttons: `同步到 WSL` and the manual WSL-to-Windows text sync button `读取WSL剪切板`. It also has app controls that call `wsl -d Ubuntu-22.04 -- wechat-desktop` and `wsl -d Ubuntu-22.04 -- wechat-desktop-stop`.
+`start-clipboard-widget-hidden.vbs` opens the manual Windows clipboard widget. The widget can preview/edit text, preview images, list copied or dropped files, and then push that payload to the WSL/Linux clipboard by calling `winclip2wechat`. Its `剪贴板` page bottom row has two side-by-side buttons: `同步到 WSL` and the manual WSL-to-Windows text sync button `读取WSL剪切板`. It also has app controls that call `wechat-desktop`, `wechat-desktop-stop`, and `wechat-input-reset`; the `重置输入法` button performs a controlled restart of this nested WeChat desktop, cleans scoped Sogou queues, and switches the first focused Linux input back to Sogou.
 
 The widget has a dedicated `运行状态` page with the unified clipboard watcher status, a green/yellow indicator, a status-aware `启动监听` / `停止监听` button, a small yellow/green status dot in the `运行状态` tab, and recent operation output.
 
@@ -123,6 +124,8 @@ Clipboard payload files are temporary. They live under a private runtime/cache d
 ### Chinese Input Method
 
 Fresh WSL/Ubuntu installs usually do not have Chinese input ready for Linux GUI apps. `wechat-desktop` exports fcitx input-method environment variables and starts fcitx4, with `fcitx-pinyin` as the baseline engine and Sogou Pinyin 4.x supported when installed. Sogou also needs `/dev/mqueue`; the launcher mounts it when possible and removes stale queues scoped to the current uid/display. If Chinese input is missing or slow, check `wechat-desktop-status` and `~/.cache/wechat-desktop/fcitx5.log` (legacy filename), and verify repeated conversion latency rather than only one successful conversion.
+
+When WeChat is already running but Sogou is delayed or stuck, use `wechat-input-reset` or the widget's `重置输入法` button. It intentionally restarts this managed nested desktop because deleting Sogou queues while preserving fcitx leaves the proprietary addon attached to old queue handles. The helper uses the scoped stop path, current-uid/current-display queue cleanup, hidden relaunch, and first-input activation. Warn that unsent input should be saved first.
 
 ### Windows File Links
 

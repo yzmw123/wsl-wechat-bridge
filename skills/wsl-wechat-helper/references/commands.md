@@ -11,6 +11,9 @@ wsl -d Ubuntu-22.04 -- wechat-desktop
 # Status
 wsl -d Ubuntu-22.04 -- wechat-desktop-status
 
+# Restart this managed nested desktop, clean scoped Sogou queues, and switch the first WSL input back to Sogou
+wsl -d Ubuntu-22.04 -- wechat-input-reset
+
 # Public repo health check
 powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1 -Distro Ubuntu-22.04
 

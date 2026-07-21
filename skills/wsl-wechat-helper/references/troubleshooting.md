@@ -21,7 +21,13 @@ wsl -d Ubuntu-22.04 -- tail -n 80 ~/.cache/wechat-desktop/fcitx5.log
 
 Healthy Sogou startup has `mqueue_mounted=1`, running fcitx/Sogou PIDs, and a small current `sogou_queue_count`. Errors such as `can't open sendmq`, `mq_open failed`, or `Too many open files` usually mean `/dev/mqueue` was unavailable or old Sogou queues survived a prior session.
 
-Use the installed lifecycle commands to repair the scoped session:
+Save any unsent input, then use the widget's `重置输入法` button or the installed helper to restart this managed nested desktop and repair the scoped input session:
+
+```powershell
+wsl -d Ubuntu-22.04 -- wechat-input-reset
+```
+
+If the helper reports that the nested display is not running, or the whole desktop is unhealthy, restart the full session:
 
 ```powershell
 wsl -d Ubuntu-22.04 -- wechat-desktop-stop

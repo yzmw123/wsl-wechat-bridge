@@ -51,7 +51,7 @@ Write-Section "Distro"
 "distro=$Distro"
 
 Write-Section "Installed WSL commands"
-Invoke-Wsl -CommandArgs @("bash", "-lc", "command -v wechat-desktop wechat-desktop-status wechat-desktop-stop wechat-restore winclip2wechat wechatclip2win wsl-app-notify-bridge wsl-app-notify-bridge-restart wsl-app-notification-daemon wsl-app-badge-notify-watch wsl-app-focus-bridge wsl-focus-sink 2>/dev/null")
+Invoke-Wsl -CommandArgs @("bash", "-lc", "command -v wechat-desktop wechat-desktop-status wechat-desktop-stop wechat-input-reset wechat-restore winclip2wechat wechatclip2win wsl-app-notify-bridge wsl-app-notify-bridge-restart wsl-app-notification-daemon wsl-app-badge-notify-watch wsl-app-focus-bridge wsl-focus-sink 2>/dev/null")
 
 Write-Section "WeChat desktop status"
 Invoke-Wsl -CommandArgs @("wechat-desktop-status")

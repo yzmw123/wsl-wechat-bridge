@@ -59,9 +59,12 @@ Fresh WSL/Ubuntu installs usually do not include a Chinese input method usable b
 
 Sogou uses POSIX message queues. Before starting an input method managed by this project, the launcher mounts `/dev/mqueue` with non-interactive sudo when needed, stops exact orphan Sogou service/watchdog processes, and removes only queues owned by the current uid and nested display. The managed fcitx PID is recorded so the stop command can shut down and clean up only this session. Check `wechat-desktop-status` and `~/.cache/wechat-desktop/fcitx5.log` (legacy filename) before debugging WeChat itself.
 
+`wechat-input-reset` performs scoped IPC recovery by using `wechat-desktop-stop --force` to stop only this managed nested desktop, clearing current-uid/current-display Sogou queues, and relaunching through the installed hidden Windows launcher. A controlled desktop restart is required because the proprietary fcitx4 Sogou addon retains old message-queue handles and its watchdog otherwise replaces fcitx behind the running client's input context. The helper waits for WeChat, fcitx, and Sogou to return, selects `sogoupinyin`, and arms a bounded one-shot activator for the first focused Linux input. The Windows clipboard widget exposes this command as `重置输入法`.
+
 ## Components
 
 - `clipboard-widget.ps1`: WinForms desktop widget for manual clipboard preview, sync, and runtime status.
+- `wechat-input-reset`: performs a controlled restart of this nested WeChat desktop, clears scoped Sogou IPC queues, and switches the first focused Linux input back to Sogou.
 - `clipboard-watch.ps1`: unified automatic clipboard watcher.
 - `winclip2wechat`: writes Windows clipboard text, image, or file URI payloads to the Linux clipboard.
 - `wechatclip2win`: copies nested X11 text clipboard back to Windows.

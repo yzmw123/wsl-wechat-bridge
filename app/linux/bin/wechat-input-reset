@@ -1,0 +1,352 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="$HOME/.cache/wechat-desktop"
+display="${WECHAT_DESKTOP_DISPLAY:-}"
+mkdir -p "$state_dir"
+chmod 700 "$state_dir" 2>/dev/null || true
+
+if [ -z "$display" ]; then
+  display="$(cat "$state_dir/display" 2>/dev/null || true)"
+fi
+if [ -z "$display" ]; then
+  display=":20"
+fi
+
+display_num="${display#:}"
+display_num="${display_num%%.*}"
+case "$display_num" in
+  ''|*[!0-9]*)
+    printf 'error=invalid display: %s\n' "$display" >&2
+    exit 64
+    ;;
+esac
+
+uid="$(id -u)"
+input_log="$state_dir/fcitx5.log"
+activator_pid_file="$state_dir/input-activate.pid"
+internal_mode=""
+expected_fcitx_pid=""
+
+usage() {
+  cat <<'EOF'
+Usage: wechat-input-reset
+
+Restarts the nested WeChat desktop and its input-method session, cleans scoped
+stale Sogou queues, and switches the first focused Linux input back to Sogou.
+EOF
+}
+
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --activate-on-context)
+      [ "$#" -eq 2 ] || exit 64
+      internal_mode="activate-on-context"
+      expected_fcitx_pid="$2"
+      ;;
+    *) usage >&2; exit 64 ;;
+  esac
+fi
+
+fail() {
+  printf 'status=error\nerror=%s\n' "$1" >&2
+  exit 1
+}
+
+sogou_installed() {
+  dpkg-query -W -f='${Status}\n' sogoupinyin 2>/dev/null |
+    grep -qx 'install ok installed'
+}
+
+sogou_pids() {
+  local pid exe
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+    case "$exe" in
+      /opt/sogoupinyin/files/bin/sogoupinyin-service|/opt/sogoupinyin/files/bin/sogoupinyin-watchdog)
+        printf '%s\n' "$pid"
+        ;;
+    esac
+  done < <(pgrep -u "$uid" -f 'sogoupinyin-(service|watchdog)' 2>/dev/null || true)
+}
+
+sogou_service_pids() {
+  local pid exe
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+    if [ "$exe" = "/opt/sogoupinyin/files/bin/sogoupinyin-service" ]; then
+      printf '%s\n' "$pid"
+    fi
+  done < <(pgrep -u "$uid" -f 'sogoupinyin-service' 2>/dev/null || true)
+}
+
+sogou_watchdog_pids() {
+  local pid exe
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+    if [ "$exe" = "/opt/sogoupinyin/files/bin/sogoupinyin-watchdog" ]; then
+      printf '%s\n' "$pid"
+    fi
+  done < <(pgrep -u "$uid" -f 'sogoupinyin-watchdog' 2>/dev/null || true)
+}
+
+process_env_value() {
+  local pid="$1" key="$2" entry
+  [ -r "/proc/$pid/environ" ] || return 1
+  while IFS= read -r entry; do
+    case "$entry" in
+      "$key="*)
+        printf '%s\n' "${entry#*=}"
+        return 0
+        ;;
+    esac
+  done < <(tr '\0' '\n' <"/proc/$pid/environ")
+  return 1
+}
+
+wait_for_sogou_service_exit() {
+  local _
+  for _ in $(seq 1 30); do
+    if [ -z "$(sogou_service_pids)" ]; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
+
+ensure_mqueue() {
+  if mountpoint -q /dev/mqueue 2>/dev/null; then
+    return 0
+  fi
+
+  command -v sudo >/dev/null 2>&1 || fail "/dev/mqueue is not mounted and sudo is unavailable"
+  sudo -n mkdir -p /dev/mqueue >/dev/null 2>&1 ||
+    fail "cannot create /dev/mqueue with non-interactive sudo"
+  sudo -n mount -t mqueue none /dev/mqueue >/dev/null 2>&1 ||
+    mountpoint -q /dev/mqueue 2>/dev/null ||
+    fail "cannot mount /dev/mqueue; run sudo mount -t mqueue none /dev/mqueue"
+}
+
+cleanup_sogou_queues() {
+  local queue queue_pattern removed=0
+  queue_pattern="SOGOUPINYIN-SOGOU-IME-IPC-MQ-*-${uid}-${display_num}"
+
+  while IFS= read -r queue; do
+    [ -n "$queue" ] || continue
+    if rm -f -- "$queue" 2>/dev/null; then
+      removed=$((removed + 1))
+    fi
+  done < <(
+    find /dev/mqueue -mindepth 1 -maxdepth 1 -user "$uid" \
+      -name "$queue_pattern" -print 2>/dev/null
+  )
+
+  printf '%s\n' "$removed"
+}
+
+queue_count() {
+  find /dev/mqueue -mindepth 1 -maxdepth 1 -user "$uid" \
+    -name "SOGOUPINYIN-SOGOU-IME-IPC-MQ-*-${uid}-${display_num}" \
+    -printf '.' 2>/dev/null | wc -c
+}
+
+run_fcitx_remote() {
+  timeout --signal=TERM 1s fcitx-remote "$@"
+}
+
+stop_previous_activator() {
+  local old_pid owner cmdline
+  old_pid="$(cat "$activator_pid_file" 2>/dev/null || true)"
+  case "$old_pid" in
+    ''|*[!0-9]*) rm -f "$activator_pid_file"; return 0 ;;
+  esac
+
+  owner="$(stat -c %u "/proc/$old_pid" 2>/dev/null || true)"
+  cmdline="$(tr '\0' ' ' <"/proc/$old_pid/cmdline" 2>/dev/null || true)"
+  if [ "$owner" = "$uid" ] &&
+     [[ "$cmdline" == *wechat-input-reset* ]] &&
+     [[ "$cmdline" == *--activate-on-context* ]]; then
+    kill -TERM "$old_pid" 2>/dev/null || true
+  fi
+  rm -f "$activator_pid_file"
+}
+
+activate_on_next_context() {
+  local state current_fcitx_pid deadline
+
+  cleanup_activator_pid() {
+    if [ "$(cat "$activator_pid_file" 2>/dev/null || true)" = "$$" ]; then
+      rm -f "$activator_pid_file"
+    fi
+  }
+  trap cleanup_activator_pid EXIT
+
+  deadline=$((SECONDS + 300))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    current_fcitx_pid="$(pgrep -u "$uid" -x fcitx 2>/dev/null | head -n 1 || true)"
+    [ "$current_fcitx_pid" = "$expected_fcitx_pid" ] || exit 0
+
+    state="$(run_fcitx_remote 2>/dev/null || true)"
+    case "$state" in
+      1|2)
+        run_fcitx_remote -s sogoupinyin >/dev/null 2>&1 || true
+        run_fcitx_remote -o >/dev/null 2>&1 || true
+        if [ "$(run_fcitx_remote 2>/dev/null || true)" = "2" ]; then
+          printf '%s activation_ok display=%s fcitx_pid=%s\n' \
+            "$(date --iso-8601=seconds)" "$display" "$expected_fcitx_pid" >>"$input_log"
+          exit 0
+        fi
+        ;;
+    esac
+    sleep 0.1
+  done
+
+  printf '%s activation_timeout display=%s fcitx_pid=%s\n' \
+    "$(date --iso-8601=seconds)" "$display" "$expected_fcitx_pid" >>"$input_log"
+}
+
+sogou_installed || fail "sogoupinyin is not installed"
+command -v fcitx >/dev/null 2>&1 || fail "fcitx command is unavailable"
+command -v fcitx-remote >/dev/null 2>&1 || fail "fcitx-remote command is unavailable"
+command -v xdpyinfo >/dev/null 2>&1 || fail "xdpyinfo command is unavailable"
+command -v wechat-desktop-stop >/dev/null 2>&1 || fail "wechat-desktop-stop command is unavailable"
+command -v powershell.exe >/dev/null 2>&1 || fail "powershell.exe is unavailable"
+xdpyinfo -display "$display" >/dev/null 2>&1 ||
+  fail "WeChat desktop display $display is not running; start the app first"
+
+wechat_pid="$(pgrep -u "$uid" -x wechat 2>/dev/null | head -n 1 || true)"
+[ -n "$wechat_pid" ] || fail "WeChat is not running on $display"
+session_dbus="$(process_env_value "$wechat_pid" DBUS_SESSION_BUS_ADDRESS 2>/dev/null || true)"
+session_runtime="$(process_env_value "$wechat_pid" XDG_RUNTIME_DIR 2>/dev/null || true)"
+[ -n "$session_dbus" ] || fail "cannot read WeChat's D-Bus session address"
+
+export DISPLAY="$display"
+unset WAYLAND_DISPLAY
+export XMODIFIERS="@im=fcitx"
+export GTK_IM_MODULE="fcitx"
+export QT_IM_MODULE="fcitx"
+export SDL_IM_MODULE="fcitx"
+export INPUT_METHOD="fcitx"
+export XIM_PROGRAM="fcitx"
+export QT_QPA_PLATFORM="xcb"
+export QT_XCB_NO_XI2="1"
+if [ -d /opt/sogoupinyin/files/bin ]; then
+  export PATH="/opt/sogoupinyin/files/bin:$PATH"
+fi
+export DBUS_SESSION_BUS_ADDRESS="$session_dbus"
+if [ -n "$session_runtime" ]; then
+  export XDG_RUNTIME_DIR="$session_runtime"
+fi
+
+if [ "$internal_mode" = "activate-on-context" ]; then
+  activate_on_next_context
+  exit 0
+fi
+
+ensure_mqueue
+printf 'status=resetting\ndisplay=%s\n' "$display"
+printf '%s reset_requested display=%s uid=%s\n' "$(date --iso-8601=seconds)" "$display" "$uid" >>"$input_log"
+
+distro="${WSL_DISTRO_NAME:-Ubuntu-22.04}"
+case "$distro" in
+  ''|*[!A-Za-z0-9._-]*) fail "invalid WSL distro name: $distro" ;;
+esac
+
+stop_previous_activator
+previous_wechat_pid="$wechat_pid"
+cleared_queue_count="$(queue_count)"
+if ! wechat-desktop-stop --force >>"$input_log" 2>&1; then
+  fail "could not stop the current WeChat desktop"
+fi
+
+display_down_checks=0
+for _ in $(seq 1 50); do
+  if timeout --signal=TERM 1s xdpyinfo -display "$display" >/dev/null 2>&1; then
+    display_down_checks=0
+  else
+    display_down_checks=$((display_down_checks + 1))
+    [ "$display_down_checks" -ge 5 ] && break
+  fi
+  sleep 0.2
+done
+[ "$display_down_checks" -ge 5 ] || fail "the old nested X display did not stop cleanly"
+
+powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -Command \
+  "Start-Process -FilePath 'wsl.exe' -WindowStyle Hidden -ArgumentList @('-d', '$distro', '--', 'wechat-desktop') | Out-Null" \
+  >/dev/null 2>&1 || fail "could not launch the WeChat desktop"
+
+wechat_pid=""
+fcitx_pid=""
+sogou_processes=""
+for _ in $(seq 1 300); do
+  wechat_pid="$(pgrep -u "$uid" -x wechat 2>/dev/null | head -n 1 || true)"
+  fcitx_pid="$(pgrep -u "$uid" -x fcitx 2>/dev/null | head -n 1 || true)"
+  sogou_processes="$(sogou_pids | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+  if [ -n "$wechat_pid" ] && [ -n "$fcitx_pid" ] && [ -n "$sogou_processes" ] &&
+     xdpyinfo -display "$display" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.1
+done
+[ -n "$wechat_pid" ] && [ "$wechat_pid" != "$previous_wechat_pid" ] ||
+  fail "WeChat did not restart"
+[ -n "$fcitx_pid" ] || fail "fcitx did not restart"
+[ -n "$sogou_processes" ] || fail "Sogou did not restart"
+
+session_dbus="$(process_env_value "$wechat_pid" DBUS_SESSION_BUS_ADDRESS 2>/dev/null || true)"
+session_runtime="$(process_env_value "$wechat_pid" XDG_RUNTIME_DIR 2>/dev/null || true)"
+[ -n "$session_dbus" ] || fail "cannot read the restarted WeChat D-Bus session address"
+export DBUS_SESSION_BUS_ADDRESS="$session_dbus"
+if [ -n "$session_runtime" ]; then
+  export XDG_RUNTIME_DIR="$session_runtime"
+fi
+
+printf '%s\n' "$fcitx_pid" >"$state_dir/fcitx.pid"
+chmod 600 "$state_dir/fcitx.pid" 2>/dev/null || true
+
+selected=0
+for _ in $(seq 1 10); do
+  if run_fcitx_remote -s sogoupinyin >/dev/null 2>&1; then
+    selected=1
+    break
+  fi
+  sleep 0.1
+done
+[ "$selected" -eq 1 ] || fail "could not select the sogoupinyin input method"
+run_fcitx_remote -o >/dev/null 2>&1 || true
+
+for _ in $(seq 1 50); do
+  sogou_service_processes="$(sogou_service_pids | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+  [ -n "$sogou_service_processes" ] && break
+  sleep 0.1
+done
+[ -n "${sogou_service_processes:-}" ] || fail "Sogou service did not start"
+sogou_processes="$(sogou_pids | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+
+grep -qx 'IMName=sogoupinyin' "$HOME/.config/fcitx/profile" 2>/dev/null ||
+  fail "fcitx did not persist sogoupinyin as the selected input method"
+
+fcitx_state="$(run_fcitx_remote 2>/dev/null || true)"
+case "$fcitx_state" in
+  2) activation="active" ;;
+  0|1)
+    stop_previous_activator
+    nohup "$0" --activate-on-context "$fcitx_pid" >>"$input_log" 2>&1 </dev/null &
+    activator_pid="$!"
+    printf '%s\n' "$activator_pid" >"$activator_pid_file"
+    chmod 600 "$activator_pid_file" 2>/dev/null || true
+    activation="armed_for_next_input"
+    ;;
+  *) fail "fcitx did not return a valid state after selecting Sogou" ;;
+esac
+
+current_queue_count="$(queue_count)"
+printf '%s reset_ok display=%s wechat_pid=%s fcitx_pid=%s queues=%s activation=%s\n' \
+  "$(date --iso-8601=seconds)" "$display" "$wechat_pid" "$fcitx_pid" "$current_queue_count" "$activation" >>"$input_log"
+printf 'status=ok\nwechat_restarted=1\nprevious_wechat_pid=%s\nwechat_pid=%s\nselected_input_method=sogoupinyin\nfcitx_state=%s\nfcitx_pid=%s\nsogou_pids=%s\ncleared_queue_count=%s\nsogou_queue_count=%s\nactivation=%s\n' \
+  "$previous_wechat_pid" "$wechat_pid" "$fcitx_state" "$fcitx_pid" "$sogou_processes" "$cleared_queue_count" "$current_queue_count" "$activation"

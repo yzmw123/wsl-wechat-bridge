@@ -175,6 +175,7 @@ $requiredHelpers = @(
     "wechat-desktop",
     "wechat-desktop-status",
     "wechat-desktop-stop",
+    "wechat-input-reset",
     "wechat-restore",
     "winclip2wechat",
     "wechatclip2win",

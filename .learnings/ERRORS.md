@@ -4,6 +4,70 @@ Command failures and integration errors.
 
 ---
 
+## [ERR-20260721-003] input-reset-required-active-context
+
+**Logged**: 2026-07-21T14:14:32+08:00
+**Priority**: medium
+**Status**: resolved
+**Area**: config
+
+### Summary
+The first `wechat-input-reset` design replaced fcitx while WeChat still held the old input context; later attempts to preserve fcitx left the proprietary Sogou addon attached to unlinked message queues.
+
+### Error
+```
+status=error
+error=fcitx is not active after selecting Sogou
+```
+
+### Context
+- Replacing fcitx without restarting WeChat left the running client connected to the old input-method process and reporting state 0.
+- Restarting only `sogoupinyin-service` while preserving fcitx recreated one queue, but the addon retained the deleted queue handle and could not convert text.
+- Resuming Sogou's watchdog after killing the service caused it to execute `fcitx -r`, replacing fcitx behind WeChat anyway.
+- The Windows widget remains foreground during reset, so the new session legitimately reports state 0 until a Linux input context is focused.
+
+### Suggested Fix
+Use the managed desktop stop path to close WeChat/fcitx/Sogou together, clean only current-uid/current-display queues, wait until the old X display is stably unavailable, relaunch through a detached Windows process, and arm activation for the first Linux input context.
+
+### Metadata
+- Reproducible: yes
+- Related Files: app/linux/bin/wechat-input-reset
+- See Also: LRN-20260721-001
+
+### Resolution
+- **Resolved**: 2026-07-21T15:07:00+08:00
+- **Notes**: Implemented a controlled nested-desktop restart. Verified new WeChat/fcitx PIDs, two rebuilt queues, automatic state 2 on the first WeChat search focus, and `nihao` conversion to “你好”.
+
+---
+
+## [ERR-20260721-004] input-reset-relaunch-race
+
+**Logged**: 2026-07-21T15:02:00+08:00
+**Priority**: medium
+**Status**: resolved
+**Area**: config
+
+### Summary
+The first controlled reset relaunch reused the old nested X display during its shutdown window and then exited.
+
+### Error
+```
+status=error
+error=WeChat did not restart
+```
+
+### Context
+- `wechat-desktop-stop` had returned, but `xdpyinfo :20` briefly still succeeded.
+- The new launcher skipped Xephyr creation, connected helpers to the dying display, and lost them when that display closed.
+- The generated VBS launcher was unreliable in this nested recovery path; a detached Windows `Start-Process wsl.exe` launch worked.
+- An optional `shellcheck` verification was unavailable in the distro, so Bash validation used `bash -n` plus live integration instead.
+
+### Resolution
+- **Resolved**: 2026-07-21T15:06:00+08:00
+- **Notes**: Required five consecutive failed display probes before relaunch and used Windows PowerShell `Start-Process`. The next reset rebuilt WeChat, fcitx, Sogou, and both queues successfully.
+
+---
+
 ## [ERR-20260721-001] powershell-wsl-verification-wrappers
 
 **Logged**: 2026-07-21T14:03:33+08:00
