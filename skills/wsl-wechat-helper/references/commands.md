@@ -11,6 +11,9 @@ wsl -d Ubuntu-22.04 -- wechat-desktop
 # Status
 wsl -d Ubuntu-22.04 -- wechat-desktop-status
 
+# Read-only check for the supported fcitx4 + Sogou 4.x reset path
+wsl -d Ubuntu-22.04 -- wechat-input-reset --check
+
 # Restart this managed nested desktop, clean scoped Sogou queues, and switch the first WSL input back to Sogou
 wsl -d Ubuntu-22.04 -- wechat-input-reset
 

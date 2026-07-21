@@ -4,6 +4,75 @@ Command failures and integration errors.
 
 ---
 
+## [ERR-20260721-006] start-process-wsl-exit-code-unavailable
+
+**Logged**: 2026-07-21T16:43:00+08:00
+**Priority**: high
+**Status**: resolved
+**Area**: frontend
+
+### Summary
+Windows PowerShell returned an empty `ExitCode` for a completed redirected `wsl.exe` capability process, causing a valid Sogou reset capability result to be marked unsupported.
+
+### Error
+```
+input_reset_capability=unsupported ... reason=input_method=sogoupinyin
+```
+
+### Context
+- `wechat-input-reset --check` wrote the complete successful contract: `status=supported`, `framework=fcitx4`, and `input_method=sogoupinyin`.
+- The widget had required both the structured success line and `$process.ExitCode -eq 0`.
+- On the installed Windows PowerShell 5 runtime, the redirected `Start-Process -PassThru` object exposed a blank exit code even after `WaitForExit()`.
+
+### Suggested Fix
+Use the helper's unique structured terminal status as the authoritative result, and treat the process exit code as optional diagnostic metadata.
+
+### Metadata
+- Reproducible: yes
+- Related Files: app/windows/clipboard-widget.ps1, app/linux/bin/wechat-input-reset
+
+### Resolution
+- **Resolved**: 2026-07-21T16:44:00+08:00
+- **Notes**: Capability now trusts `status=supported`; reset success trusts `status=ok`; missing exit codes are logged as `unavailable`, and failures surface the helper's `error=` reason.
+
+---
+
+## [ERR-20260721-005] powershell-expanded-bash-loop-variable
+
+**Logged**: 2026-07-21T16:20:00+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: tests
+
+### Summary
+A read-only WSL process probe lost its Bash loop variable while crossing PowerShell and `bash -lc`.
+
+### Error
+```
+/proc//environ: No such file or directory
+```
+
+### Context
+- The probe embedded Bash `$p` references in a PowerShell command string.
+- PowerShell removed the variable before Bash evaluated the loop, so the probe returned no process environment data.
+- No process was changed or stopped.
+- A later source search repeated the same class of issue with a `$script:` regex; `Select-String -SimpleMatch` avoided interpolation.
+- A separate inline debug command that created fixed-name temporary files was rejected by the shell policy; runtime code continues to use unique temporary paths and normal cleanup.
+
+### Suggested Fix
+Avoid cross-shell variables for process probes; pass fixed PIDs as direct WSL arguments or encode the Bash script before invocation.
+
+### Metadata
+- Reproducible: yes
+- Related Files: app/linux/bin/wechat-desktop-stop, app/linux/bin/wechat-input-reset
+- See Also: ERR-20260715-003
+
+### Resolution
+- **Resolved**: 2026-07-21T16:20:00+08:00
+- **Notes**: Continued with fixed-PID/direct-argument probes, literal PowerShell searches, and repository/runtime tests that do not depend on policy-blocked inline temp-file debugging.
+
+---
+
 ## [ERR-20260721-003] input-reset-required-active-context
 
 **Logged**: 2026-07-21T14:14:32+08:00

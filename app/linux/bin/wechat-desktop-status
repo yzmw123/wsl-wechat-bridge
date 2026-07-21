@@ -16,6 +16,32 @@ uid="$(id -u)"
 display_num="${display#:}"
 display_num="${display_num%%.*}"
 
+process_env_value() {
+  local pid="$1" key="$2" entry
+  [ -r "/proc/$pid/environ" ] || return 1
+  while IFS= read -r entry; do
+    case "$entry" in
+      "$key="*)
+        printf '%s\n' "${entry#*=}"
+        return 0
+        ;;
+    esac
+  done < <(tr '\0' '\n' <"/proc/$pid/environ")
+  return 1
+}
+
+process_on_display() {
+  [ "$(process_env_value "$1" DISPLAY 2>/dev/null || true)" = "$display" ]
+}
+
+pids_by_comm_on_display() {
+  local comm="$1" pid
+  while IFS= read -r pid; do
+    process_on_display "$pid" || continue
+    printf '%s\n' "$pid"
+  done < <(pgrep -u "$uid" -x "$comm" 2>/dev/null || true)
+}
+
 sogou_pids() {
   local proc pid owner exe
   for proc in /proc/[0-9]*; do
@@ -25,6 +51,7 @@ sogou_pids() {
     exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
     case "$exe" in
       /opt/sogoupinyin/files/bin/sogoupinyin-service|/opt/sogoupinyin/files/bin/sogoupinyin-watchdog)
+        process_on_display "$pid" || continue
         printf '%s\n' "$pid"
         ;;
     esac
@@ -85,7 +112,7 @@ else
   printf 'desktop=stopped\n'
 fi
 
-wechat_pids="$(pgrep -u "$uid" -x wechat 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+wechat_pids="$(pids_by_comm_on_display wechat | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
 xephyr_pids="$(pgrep -u "$uid" -f "Xephyr ${display}" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
 bridge_pids="$(
   ps -u "$uid" -o pid=,args= |
@@ -105,7 +132,7 @@ badge_pids="$(
     tr '\n' ' ' |
     sed 's/[[:space:]]*$//'
 )"
-fcitx_pids="$(pgrep -u "$uid" -x fcitx 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+fcitx_pids="$(pids_by_comm_on_display fcitx | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
 sogou_process_pids="$(sogou_pids | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
 
 if mountpoint -q /dev/mqueue 2>/dev/null; then

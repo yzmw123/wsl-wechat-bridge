@@ -9,6 +9,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if ($Distro -notmatch '^[A-Za-z0-9._-]+$') {
+    throw "Distro name may contain only letters, numbers, dot, underscore, and hyphen: $Distro"
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $windowsSource = Join-Path $repoRoot "app\windows"
 $launcherSource = Join-Path $windowsSource "launchers"
@@ -30,6 +34,10 @@ Get-ChildItem -LiteralPath $windowsSource -File -Force | ForEach-Object {
 Get-ChildItem -LiteralPath $launcherSource -File -Force | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $InstallRoot $_.Name) -Force
 }
+
+$distroConfigPath = Join-Path $InstallRoot "distro.txt"
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($distroConfigPath, $Distro, $utf8NoBom)
 
 function ConvertTo-WslPath {
     param([string]$WindowsPath)
@@ -77,6 +85,7 @@ if ($InstallDependencies) {
         "fcitx-frontend-gtk3",
         "fcitx-frontend-qt5",
         "fcitx-module-x11",
+        "util-linux",
         "libqt5quickwidgets5",
         "libqt5quick5",
         "libqt5qml5",

@@ -66,6 +66,7 @@ Work step by step:
      If required dependencies are missing and I approve sudo changes, use:
      `powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Distro <DistroName> -InstallDependencies`
    - Confirm Windows helper files exist under `%LOCALAPPDATA%\WslPrivate\launchers`.
+   - Confirm `%LOCALAPPDATA%\WslPrivate\launchers\distro.txt` contains `<DistroName>`; distro-aware launchers read this file when `WSL_WECHAT_DISTRO` is not explicitly set.
    - Confirm `notice.ps1` exists there; it may be a hidden file.
    - Confirm WSL helper commands exist in `/usr/local/bin`, especially `wechat-desktop`, `wechat-desktop-stop`, `wechat-input-reset`, `winclip2wechat`, and `wechatclip2win`.
    - Confirm Windows file links exist in WSL, such as `~/Windows-C`, `~/Windows-Downloads`, and `~/Windows-Documents`, so Linux WeChat can send files directly from Windows disks and save received files back to Windows folders.
@@ -80,7 +81,8 @@ Work step by step:
      `wsl -d <DistroName> -- wechat-desktop`
    - Ask me to scan the WeChat login QR code if needed.
    - Ask me to test repeated Chinese conversions in a Linux WeChat chat box, including latency rather than only one successful conversion. If Chinese input does not work or becomes slow, inspect fcitx/Sogou processes, `/dev/mqueue`, the Sogou queues reported by `wechat-desktop-status`, `~/.cache/wechat-desktop/fcitx5.log`, and the environment variables exported by `wechat-desktop` before blaming WeChat.
-   - Confirm the clipboard widget's `重置输入法` button runs `wechat-input-reset`, performs a controlled nested-desktop restart, clears scoped Sogou queues, and activates `sogoupinyin` on the first focused WSL input.
+   - Treat Sogou reset as an optional, explicitly limited feature. The repository does not download or redistribute Sogou. Run `wsl -d <DistroName> -- wechat-input-reset --check`; only when it reports `status=supported` should the widget enable `重置搜狗输入法`. The supported path is this project's Xephyr desktop with fcitx4 and a user-installed Debian/Ubuntu Sogou 4.x package using `/opt/sogoupinyin/files/bin`; do not claim support for fcitx5, IBus, other engines, native Linux, or direct WSLg sessions.
+   - Confirm the reset button warns that the managed WeChat desktop will restart, uses the reset lock, clears only current-uid/current-display queues, and activates `sogoupinyin` on the first focused WSL input.
    - Check status:
      `wsl -d <DistroName> -- wechat-desktop-status`
      `powershell -NoProfile -STA -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\WslPrivate\launchers\clipboard-watch.ps1" -Status`

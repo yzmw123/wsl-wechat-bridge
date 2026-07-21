@@ -55,7 +55,7 @@ These make Windows files visible in Linux WeChat's file picker, so users can sen
 - `GTK_IM_MODULE=fcitx`
 - `QT_IM_MODULE=fcitx`
 
-It also starts fcitx4 and writes logs to `~/.cache/wechat-desktop/fcitx5.log` (the filename is retained for compatibility). When Sogou Pinyin 4.x is installed, startup ensures `/dev/mqueue` is mounted and removes only stale queues for the current uid/display. The managed fcitx PID is stored in `~/.cache/wechat-desktop/fcitx.pid`; normal stop uses it to avoid terminating an unrelated fcitx session.
+It also starts fcitx4 and writes logs to `~/.cache/wechat-desktop/fcitx5.log` (the filename is retained for compatibility). When a compatible user-installed Sogou Pinyin 4.x package is present, startup ensures `/dev/mqueue` is mounted and removes only stale queues for the current uid/display. The managed fcitx PID is stored in `~/.cache/wechat-desktop/fcitx.pid`; immediately before WeChat is exec'd, its stable PID is stored in `~/.cache/wechat-desktop/wechat.pid`. Normal stop validates these files and uses display-scoped fallbacks for old sessions.
 
 Fresh WSL/Ubuntu installs still need Chinese input engine packages installed, typically:
 
@@ -114,6 +114,7 @@ Known helper files:
 - `stop-focus-watch.cmd`
 - `notice.ps1`
 - `notice.log`
+- `distro.txt` (validated distro name written by the installer and read by distro-aware VBS/CMD launchers)
 - `settings.json` (local runtime settings, including `NoticePopupEnabled`)
 
 Keep these helpers in the private launcher directory. Avoid creating visible WeChat-named Windows launchers.
@@ -182,7 +183,7 @@ Manual Windows widget:
 wscript.exe //B "$env:LOCALAPPDATA\WslPrivate\launchers\start-clipboard-widget-hidden.vbs"
 ```
 
-The widget has two pages. The `剪贴板` page previews or edits Windows clipboard payloads, then calls `winclip2wechat` to write the selected payload into the Linux/X11 clipboard. Its bottom row has two side-by-side buttons: `同步到 WSL` and `读取WSL剪切板`; the second button manually pulls Linux/X11 text back to Windows with `wechatclip2win`. The `运行状态` page shows the unified clipboard watcher status, a green/yellow indicator, a status-aware `启动监听` / `停止监听` button, a small yellow/green status dot in the `运行状态` tab, and recent operation output. The home page also has `启动应用`, `关闭应用`, and `重置输入法` controls. The reset button calls `wechat-input-reset`, performs a controlled restart of this managed nested WeChat desktop, clears scoped Sogou IPC residue, and switches back to `sogoupinyin` on the first WSL input focus. A desktop shortcut named `WSL剪切板同步.lnk` may point to this VBS launcher and use `wsl-clip-cube.ico`.
+The widget has two pages. The `剪贴板` page previews or edits Windows clipboard payloads, then calls `winclip2wechat` to write the selected payload into the Linux/X11 clipboard. Its bottom row has two side-by-side buttons: `同步到 WSL` and `读取WSL剪切板`; the second button manually pulls Linux/X11 text back to Windows with `wechatclip2win`. The `运行状态` page shows the unified clipboard watcher status, a green/yellow indicator, a status-aware `启动监听` / `停止监听` button, a small yellow/green status dot in the `运行状态` tab, and recent operation output. The home page also has `启动应用`, `关闭应用`, and `重置搜狗输入法` controls. The reset button is disabled unless `wechat-input-reset --check` confirms fcitx4 + Sogou 4.x; it asks for confirmation, performs a locked controlled restart of this managed nested WeChat desktop, clears scoped Sogou IPC residue, and switches back to `sogoupinyin` on the first WSL input focus. A desktop shortcut named `WSL剪切板同步.lnk` may point to this VBS launcher and use `wsl-clip-cube.ico`.
 
 The widget icon uses a multi-size ICO generated from `clipboard-widget.ps1`; the shortcut should use an absolute `IconLocation`, not `%USERPROFILE%...`. The WinForms process sets an explicit AppUserModelID and sends both small and big window icons so the Windows taskbar does not fall back to a blank PowerShell/script placeholder.
 
@@ -215,7 +216,7 @@ Clipboard payload files live under a private runtime/cache directory such as `$X
 
 ## Stop Semantics
 
-Normal `wechat-desktop-stop` sends `SIGTERM` and returns non-zero if matching processes survive. `--force` is required for `SIGKILL`. PID files are used only after command-line validation, and the notification daemon PID is included in dry-run and stop matching.
+Normal `wechat-desktop-stop` sends `SIGTERM` and returns non-zero if matching processes survive. `--force` is required for `SIGKILL`. PID files are used only after owner/command validation; WeChat uses its managed PID plus descendants, while compatibility fallback matches exact WeChat executables/names only when their `DISPLAY` equals the nested desktop. The notification daemon PID is included in dry-run and stop matching.
 
 Windows `stop-focus-watch.cmd` and `stop-clipboard-watch.cmd` also validate that the PID-file process command line matches the expected watcher before stopping it.
 

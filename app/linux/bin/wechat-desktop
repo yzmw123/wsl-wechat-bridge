@@ -19,6 +19,24 @@ sogou_installed() {
     grep -qx 'install ok installed'
 }
 
+process_env_value() {
+  local pid="$1" key="$2" entry
+  [ -r "/proc/$pid/environ" ] || return 1
+  while IFS= read -r entry; do
+    case "$entry" in
+      "$key="*)
+        printf '%s\n' "${entry#*=}"
+        return 0
+        ;;
+    esac
+  done < <(tr '\0' '\n' <"/proc/$pid/environ")
+  return 1
+}
+
+process_on_display() {
+  [ "$(process_env_value "$1" DISPLAY 2>/dev/null || true)" = "$display" ]
+}
+
 sogou_pids() {
   local proc pid owner exe
   for proc in /proc/[0-9]*; do
@@ -28,10 +46,34 @@ sogou_pids() {
     exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
     case "$exe" in
       /opt/sogoupinyin/files/bin/sogoupinyin-service|/opt/sogoupinyin/files/bin/sogoupinyin-watchdog)
+        process_on_display "$pid" || continue
         printf '%s\n' "$pid"
         ;;
     esac
   done
+}
+
+fcitx_pid_for_display() {
+  local pid
+
+  pid="$(cat "$state_dir/fcitx.pid" 2>/dev/null || true)"
+  case "$pid" in
+    ''|*[!0-9]*) pid="" ;;
+  esac
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null &&
+     [ "$(stat -c %u "/proc/$pid" 2>/dev/null || true)" = "$uid" ] &&
+     [ "$(cat "/proc/$pid/comm" 2>/dev/null || true)" = "fcitx" ] &&
+     process_on_display "$pid"; then
+    printf '%s\n' "$pid"
+    return 0
+  fi
+
+  while IFS= read -r pid; do
+    process_on_display "$pid" || continue
+    printf '%s\n' "$pid"
+    return 0
+  done < <(pgrep -u "$uid" -x fcitx 2>/dev/null || true)
+  return 1
 }
 
 prepare_sogou_ipc() {
@@ -527,19 +569,31 @@ start_clipboard_watch() {
   wscript.exe //B "$(wslpath -w "$helper")" >/dev/null 2>&1 || true
 }
 
-if ! pgrep -u "$uid" -x fcitx >/dev/null 2>&1; then
+fcitx_pid="$(fcitx_pid_for_display 2>/dev/null || true)"
+if [ -z "$fcitx_pid" ]; then
+  other_fcitx_pids="$(pgrep -u "$uid" -x fcitx 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
+  if [ -n "$other_fcitx_pids" ]; then
+    printf 'Refusing to replace fcitx from another display (pids: %s); stop that session first.\n' "$other_fcitx_pids" >&2
+    exit 1
+  fi
   rotate_log "$state_dir/fcitx5.log"
   rm -f "$state_dir/fcitx.pid"
   prepare_sogou_ipc >"$state_dir/fcitx5.log" 2>&1 || true
-  DISPLAY="$display" nohup fcitx -d --replace >>"$state_dir/fcitx5.log" 2>&1 || true
+  DISPLAY="$display" nohup fcitx -d >>"$state_dir/fcitx5.log" 2>&1 || true
   for _ in $(seq 1 20); do
-    fcitx_pid="$(pgrep -u "$uid" -x fcitx 2>/dev/null | head -n 1 || true)"
+    fcitx_pid="$(fcitx_pid_for_display 2>/dev/null || true)"
     if [ -n "$fcitx_pid" ]; then
       printf '%s\n' "$fcitx_pid" >"$state_dir/fcitx.pid"
       break
     fi
     sleep 0.05
   done
+  if [ -z "$fcitx_pid" ]; then
+    printf 'Failed to start fcitx for display %s; see %s\n' "$display" "$state_dir/fcitx5.log" >&2
+    exit 1
+  fi
+else
+  printf '%s\n' "$fcitx_pid" >"$state_dir/fcitx.pid"
 fi
 
 start_notice_bridge
@@ -547,4 +601,6 @@ start_badge_watch
 start_focus_watch
 start_clipboard_watch
 
+printf '%s\n' "$$" >"$state_dir/wechat.pid"
+chmod 600 "$state_dir/wechat.pid" 2>/dev/null || true
 exec "$wechat_command" "$@"

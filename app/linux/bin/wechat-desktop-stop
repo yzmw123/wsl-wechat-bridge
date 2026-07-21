@@ -73,10 +73,12 @@ windows_launcher_file() {
 }
 
 pid_from_file() {
-  local file="$1" pattern="${2:-}" pid args
+  local file="$1" pattern="${2:-}" pid args owner
   pid="$(cat "$file" 2>/dev/null || true)"
   [ -n "$pid" ] || return 0
   kill -0 "$pid" 2>/dev/null || return 0
+  owner="$(stat -c %u "/proc/$pid" 2>/dev/null || true)"
+  [ "$owner" = "$uid" ] || return 0
 
   if [ -n "$pattern" ]; then
     args="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || ps -p "$pid" -o args= 2>/dev/null || true)"
@@ -85,6 +87,93 @@ pid_from_file() {
   fi
 
   printf '%s\n' "$pid"
+}
+
+process_env_value() {
+  local pid="$1" key="$2" entry
+  [ -r "/proc/$pid/environ" ] || return 1
+  while IFS= read -r entry; do
+    case "$entry" in
+      "$key="*)
+        printf '%s\n' "${entry#*=}"
+        return 0
+        ;;
+    esac
+  done < <(tr '\0' '\n' <"/proc/$pid/environ")
+  return 1
+}
+
+process_on_display() {
+  [ "$(process_env_value "$1" DISPLAY 2>/dev/null || true)" = "$display" ]
+}
+
+print_process_tree() {
+  local root_pid="$1"
+  printf '%s\n' "$root_pid"
+  ps -u "$uid" -o pid=,ppid= | awk -v root="$root_pid" '
+      { parent[$1] = $2 }
+      END {
+        for (pid in parent) {
+          current = pid
+          while (current in parent && parent[current] != 0) {
+            if (parent[current] == root) {
+              print pid
+              break
+            }
+            current = parent[current]
+          }
+        }
+      }
+    '
+}
+
+wechat_root_for_display() {
+  local proc pid owner comm
+  for proc in /proc/[0-9]*; do
+    pid="${proc#/proc/}"
+    owner="$(stat -c %u "$proc" 2>/dev/null || true)"
+    [ "$owner" = "$uid" ] || continue
+    comm="$(cat "$proc/comm" 2>/dev/null || true)"
+    [ "$comm" = "wechat" ] || continue
+    process_on_display "$pid" || continue
+    printf '%s\n' "$pid"
+    return 0
+  done
+  return 1
+}
+
+managed_wechat_pids() {
+  local proc pid owner comm exe root_pid
+
+  root_pid="$(pid_from_file "$state_dir/wechat.pid" '(^|/)wechat([[:space:]]|$)' | head -n 1)"
+  if [ -n "$root_pid" ] && ! process_on_display "$root_pid"; then
+    root_pid=""
+  fi
+  if [ -z "$root_pid" ]; then
+    root_pid="$(wechat_root_for_display 2>/dev/null || true)"
+  fi
+  if [ -n "$root_pid" ]; then
+    print_process_tree "$root_pid"
+  fi
+
+  for proc in /proc/[0-9]*; do
+    pid="${proc#/proc/}"
+    owner="$(stat -c %u "$proc" 2>/dev/null || true)"
+    [ "$owner" = "$uid" ] || continue
+    comm="$(cat "$proc/comm" 2>/dev/null || true)"
+    exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
+    case "$comm" in
+      wechat|WeChatAppEx|wxocr|wxplayer|wxutility|crashpad_handler) ;;
+      *)
+        case "$exe" in
+          /opt/wechat/*) ;;
+          *) continue ;;
+        esac
+        ;;
+    esac
+    process_on_display "$pid" || continue
+    printf '%s\n' "$pid"
+  done
 }
 
 sogou_pids() {
@@ -96,6 +185,7 @@ sogou_pids() {
     exe="$(readlink -f "$proc/exe" 2>/dev/null || true)"
     case "$exe" in
       /opt/sogoupinyin/files/bin/sogoupinyin-service|/opt/sogoupinyin/files/bin/sogoupinyin-watchdog)
+        process_on_display "$pid" || continue
         printf '%s\n' "$pid"
         ;;
     esac
@@ -103,6 +193,9 @@ sogou_pids() {
 }
 
 managed_fcitx_pid="$(pid_from_file "$state_dir/fcitx.pid" '(^|/)fcitx([[:space:]]|$)' | head -n 1)"
+if [ -n "$managed_fcitx_pid" ] && ! process_on_display "$managed_fcitx_pid"; then
+  managed_fcitx_pid=""
+fi
 managed_input=0
 if [ -n "$managed_fcitx_pid" ]; then
   managed_input=1
@@ -117,20 +210,8 @@ pids_to_stop() {
     pid_from_file "$state_dir/notification-daemon.pid" "wsl-app-notification-daemon"
     pid_from_file "$state_dir/focus-sink.pid" "wsl-focus-sink"
     pid_from_file "$state_dir/badge-notify-watch.pid" "wsl-app-badge-notify-watch"
-    pgrep -u "$uid" -x wechat 2>/dev/null || true
-    pgrep -u "$uid" -x WeChatAppEx 2>/dev/null || true
-    pgrep -u "$uid" -x wxocr 2>/dev/null || true
-    pgrep -u "$uid" -x wxplayer 2>/dev/null || true
-    pgrep -u "$uid" -x wxutility 2>/dev/null || true
-    pgrep -u "$uid" -f '/opt/wechat/' 2>/dev/null || true
+    managed_wechat_pids
     pgrep -u "$uid" -f "Xephyr ${display}" 2>/dev/null || true
-    pgrep -u "$uid" -f 'xmessage .*wsl-focus-sink' 2>/dev/null || true
-    ps -u "$uid" -o pid=,args= |
-      awk '/\/usr\/local\/bin\/wsl-app-badge-notify-watch/ && !/--status/ && !/py_compile/ { print $1 }'
-    ps -u "$uid" -o pid=,args= |
-      awk '/bash \/usr\/local\/bin\/wsl-app-notify-bridge$/ { print $1 }'
-    ps -u "$uid" -o pid=,args= |
-      awk '/wsl-app-notification-daemon/ && !/py_compile/ { print $1 }'
     if [ "$managed_input" -eq 1 ]; then
       if kill -0 "$managed_fcitx_pid" 2>/dev/null; then
         printf '%s\n' "$managed_fcitx_pid"
@@ -143,7 +224,8 @@ pids_to_stop() {
 cleanup_sogou_queues() {
   local queue queue_pattern
 
-  if pgrep -u "$uid" -x fcitx >/dev/null 2>&1 || [ -n "$(sogou_pids)" ]; then
+  if { [ -n "$managed_fcitx_pid" ] && kill -0 "$managed_fcitx_pid" 2>/dev/null; } ||
+     [ -n "$(sogou_pids)" ]; then
     return 0
   fi
 
@@ -248,6 +330,7 @@ rm -f \
   "$state_dir/focus-sink.pid" \
   "$state_dir/badge-notify-watch.pid" \
   "$state_dir/fcitx.pid" \
+  "$state_dir/wechat.pid" \
   "$state_dir/notice-bridge.seen" \
   "/tmp/.X${display_num}-lock" \
   "/tmp/.X11-unix/X${display_num}" \

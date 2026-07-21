@@ -12,6 +12,8 @@ Windows helper scripts live under:
 %LOCALAPPDATA%\WslPrivate\launchers
 ```
 
+The installer persists its validated WSL distribution name in `distro.txt` in this directory. Distro-aware VBS/CMD launchers prefer an explicit `WSL_WECHAT_DISTRO` override, then this file, then the `Ubuntu-22.04` fallback.
+
 Linux runtime state lives under:
 
 ```text
@@ -55,11 +57,11 @@ These links let Linux WeChat's file picker send files directly from Windows disk
 
 ## Chinese Input
 
-Fresh WSL/Ubuntu installs usually do not include a Chinese input method usable by Linux GUI apps. `wechat-desktop` exports fcitx input-method variables and starts fcitx4, while the installer and doctor expect the distro to have `fcitx` and `fcitx-pinyin`. An installed Sogou Pinyin 4.x engine is also supported.
+Fresh WSL/Ubuntu installs usually do not include a Chinese input method usable by Linux GUI apps. `wechat-desktop` exports fcitx input-method variables and starts fcitx4, while the installer and doctor expect the distro to have `fcitx` and `fcitx-pinyin`. A user-installed Debian/Ubuntu `sogoupinyin` 4.x package with its standard `/opt/sogoupinyin/files/bin` layout is also supported; the project does not redistribute or install that proprietary package.
 
 Sogou uses POSIX message queues. Before starting an input method managed by this project, the launcher mounts `/dev/mqueue` with non-interactive sudo when needed, stops exact orphan Sogou service/watchdog processes, and removes only queues owned by the current uid and nested display. The managed fcitx PID is recorded so the stop command can shut down and clean up only this session. Check `wechat-desktop-status` and `~/.cache/wechat-desktop/fcitx5.log` (legacy filename) before debugging WeChat itself.
 
-`wechat-input-reset` performs scoped IPC recovery by using `wechat-desktop-stop --force` to stop only this managed nested desktop, clearing current-uid/current-display Sogou queues, and relaunching through the installed hidden Windows launcher. A controlled desktop restart is required because the proprietary fcitx4 Sogou addon retains old message-queue handles and its watchdog otherwise replaces fcitx behind the running client's input context. The helper waits for WeChat, fcitx, and Sogou to return, selects `sogoupinyin`, and arms a bounded one-shot activator for the first focused Linux input. The Windows clipboard widget exposes this command as `重置输入法`.
+`wechat-input-reset` is intentionally a fcitx4/Sogou-specific recovery command, not a generic fcitx5/IBus reset. `--check` performs a read-only capability probe. A non-blocking `flock` lock prevents concurrent CLI or multi-widget resets. The reset uses `wechat-desktop-stop --force`, verifies that the old display is stably down and its scoped queues are gone, relaunches the same WSL distro through Windows interop, waits for display-scoped WeChat/fcitx/Sogou processes, selects `sogoupinyin`, and arms a bounded one-shot activator for the first focused Linux input. A controlled desktop restart is required because the proprietary fcitx4 Sogou addon retains old message-queue handles. The widget labels the action `重置搜狗输入法`, disables it when `--check` fails, and requires confirmation because unsent input can be lost.
 
 ## Components
 
@@ -75,9 +77,9 @@ Sogou uses POSIX message queues. Before starting an input method managed by this
 
 ## Process Lifecycle
 
-`wechat-desktop` starts helper services without broad process cleanup. It does not kill existing `wechat`, `WeChatAppEx`, or fcitx processes during startup. fcitx is started only when it is not already running for the user; exact orphan Sogou service/watchdog processes are stopped only when no fcitx process exists and a new managed input session is about to start.
+`wechat-desktop` starts helper services without broad process cleanup. It does not kill existing `wechat`, `WeChatAppEx`, or fcitx processes during startup. It reuses only an fcitx process whose environment matches the managed `DISPLAY`, records that PID, and starts a new fcitx without `--replace` when the display has none. Sogou service/watchdog discovery is also filtered by `DISPLAY`. Immediately before `exec`-ing WeChat, it records the stable process ID in `wechat.pid`.
 
-`wechat-desktop-stop` collects PIDs from state files plus exact user-process matches. Normal stop asks its managed fcitx session to exit, sends `SIGTERM` to survivors, removes its Sogou queues, and returns non-zero if anything survives; `--force` is required before `SIGKILL` is used. The stop command also stops the Windows focus and clipboard watchers through their private launcher scripts, with command-line validation before terminating PID-file processes.
+`wechat-desktop-stop` collects validated state-file PIDs. For WeChat, it uses `wechat.pid` plus descendants; old sessions without that file use an exact executable/name fallback filtered by the managed `DISPLAY`. It no longer stops all WeChat processes owned by the WSL user. Normal stop asks its display-scoped managed fcitx session to exit, sends `SIGTERM` to survivors, removes only that uid/display's Sogou queues, and returns non-zero if anything survives; `--force` is required before `SIGKILL` is used. The stop command also stops the Windows focus and clipboard watchers through their private launcher scripts.
 
 ## Logging And Privacy
 

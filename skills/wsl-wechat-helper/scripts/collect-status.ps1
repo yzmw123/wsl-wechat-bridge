@@ -49,9 +49,19 @@ $launcherDir = Join-Path $env:LOCALAPPDATA "WslPrivate\launchers"
 
 Write-Section "Distro"
 "distro=$Distro"
+$distroConfig = Join-Path $launcherDir "distro.txt"
+if (Test-Path -LiteralPath $distroConfig) {
+    "launcher_distro=$(([System.IO.File]::ReadAllText($distroConfig)).Trim())"
+}
+else {
+    "launcher_distro=missing"
+}
 
 Write-Section "Installed WSL commands"
 Invoke-Wsl -CommandArgs @("bash", "-lc", "command -v wechat-desktop wechat-desktop-status wechat-desktop-stop wechat-input-reset wechat-restore winclip2wechat wechatclip2win wsl-app-notify-bridge wsl-app-notify-bridge-restart wsl-app-notification-daemon wsl-app-badge-notify-watch wsl-app-focus-bridge wsl-focus-sink 2>/dev/null")
+
+Write-Section "Sogou reset capability"
+Invoke-Wsl -CommandArgs @("wechat-input-reset", "--check")
 
 Write-Section "WeChat desktop status"
 Invoke-Wsl -CommandArgs @("wechat-desktop-status")

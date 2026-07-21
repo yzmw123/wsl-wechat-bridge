@@ -157,7 +157,8 @@ $requiredWindowsFiles = @(
     "start-clipboard-watch-hidden.vbs",
     "start-focus-watch-hidden.vbs",
     "stop-clipboard-watch.cmd",
-    "wsl-clip-cube.ico"
+    "wsl-clip-cube.ico",
+    "distro.txt"
 )
 
 foreach ($file in $requiredWindowsFiles) {
@@ -167,6 +168,17 @@ foreach ($file in $requiredWindowsFiles) {
     }
     else {
         Write-Check "fail" "windows helper missing: $file" $path
+    }
+}
+
+$distroConfigPath = Join-Path $InstallRoot "distro.txt"
+if (Test-Path -LiteralPath $distroConfigPath) {
+    $installedDistro = ([System.IO.File]::ReadAllText($distroConfigPath)).Trim()
+    if ($installedDistro -eq $Distro) {
+        Write-Check "ok" "windows launcher distro" $installedDistro
+    }
+    else {
+        Write-Check "fail" "windows launcher distro" "Expected $Distro, got $installedDistro"
     }
 }
 
@@ -215,6 +227,8 @@ $dependencies = @(
     @{ Command = "xdotool"; Package = "xdotool" },
     @{ Command = "dbus-launch"; Package = "dbus-x11" },
     @{ Command = "fcitx"; Package = "fcitx" },
+    @{ Command = "fcitx-remote"; Package = "fcitx" },
+    @{ Command = "flock"; Package = "util-linux" },
     @{ Command = "python3"; Package = "python3" },
     @{ Command = "sha256sum"; Package = "coreutils" }
 )
@@ -257,9 +271,17 @@ if ($sogouProbe.ExitCode -eq 0) {
     else {
         Write-Check "info" "Sogou IPC" "wechat-desktop mounts /dev/mqueue before starting its managed input method."
     }
+
+    $resetCapabilityProbe = Invoke-WslBash -Command "wechat-input-reset --check"
+    if ($resetCapabilityProbe.ExitCode -eq 0 -and (($resetCapabilityProbe.Output -join "`n") -match "status=supported")) {
+        Write-Check "ok" "Sogou reset capability" "fcitx4 + sogoupinyin"
+    }
+    else {
+        Write-Check "fail" "Sogou reset capability" (($resetCapabilityProbe.Output -join " ") -replace "\s+", " ")
+    }
 }
 else {
-    Write-Check "info" "Sogou Pinyin" "not installed; fcitx-pinyin remains available"
+    Write-Check "info" "Sogou Pinyin" "not installed; fcitx-pinyin remains available and the Sogou reset button is disabled"
     Test-WslPackage -PackageName "fcitx-pinyin"
 }
 

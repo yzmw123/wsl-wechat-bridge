@@ -206,6 +206,7 @@ $script:RuntimePageButton = $null
 $script:ClipboardPagePanel = $null
 $script:RuntimePagePanel = $null
 $script:RuntimeStatusLabel = $null
+$script:SogouResetAvailable = $false
 
 function Get-PositiveIntSetting {
     param(
@@ -978,10 +979,78 @@ function Invoke-WeChatStop {
     }
 }
 
+function Update-SogouResetCapability {
+    $stdoutPath = Join-Path ([System.IO.Path]::GetTempPath()) ("wsl-input-reset-check-{0}.stdout.log" -f [Guid]::NewGuid().ToString("N"))
+    $stderrPath = Join-Path ([System.IO.Path]::GetTempPath()) ("wsl-input-reset-check-{0}.stderr.log" -f [Guid]::NewGuid().ToString("N"))
+    try {
+        $process = Start-Process -FilePath "wsl.exe" `
+            -ArgumentList @("-d", $Distro, "--", "wechat-input-reset", "--check") `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath `
+            -PassThru
+        while (-not $process.HasExited) {
+            [System.Windows.Forms.Application]::DoEvents()
+            Start-Sleep -Milliseconds 100
+        }
+        $process.WaitForExit()
+        $process.Refresh()
+        $exitCode = $process.ExitCode
+        $exitCodeLabel = if ([string]::IsNullOrWhiteSpace([string]$exitCode)) { "unavailable" } else { [string]$exitCode }
+        $output = @(
+            @(Get-Content -LiteralPath $stdoutPath -ErrorAction SilentlyContinue)
+            @(Get-Content -LiteralPath $stderrPath -ErrorAction SilentlyContinue)
+        )
+        $cleanOutput = Remove-NulText -Lines $output
+        $capabilityText = $cleanOutput -join "`n"
+        $script:SogouResetAvailable = ($capabilityText -match '(?m)^status=supported\r?$')
+        $inputResetButton.Enabled = $script:SogouResetAvailable
+        if ($script:SogouResetAvailable) {
+            $inputResetButton.Text = "重置搜狗输入法"
+            $inputResetToolTip.SetToolTip($inputResetButton, "仅支持本项目托管桌面中的 fcitx4 + 搜狗拼音 4.x；操作会重启微信桌面。")
+            Write-WidgetLog "input_reset_capability=supported distro=$Distro framework=fcitx4 engine=sogoupinyin code=$exitCodeLabel"
+        }
+        else {
+            $inputResetButton.Text = "搜狗重置不可用"
+            $reason = if ($cleanOutput.Count -gt 0) { $cleanOutput[-1] } else { "未检测到 fcitx4 + 搜狗拼音 4.x" }
+            $inputResetToolTip.SetToolTip($inputResetButton, $reason)
+            Write-WidgetLog "input_reset_capability=unsupported distro=$Distro code=$exitCodeLabel reason=$reason"
+        }
+        $inputResetButton.Invalidate()
+    }
+    catch {
+        $script:SogouResetAvailable = $false
+        $inputResetButton.Enabled = $false
+        $inputResetButton.Text = "搜狗重置不可用"
+        $inputResetToolTip.SetToolTip($inputResetButton, $_.Exception.Message)
+        Write-WidgetLog "input_reset_capability_error=$($_.Exception.Message)"
+    }
+    finally {
+        Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Invoke-SogouInputReset {
     $stdoutPath = Join-Path ([System.IO.Path]::GetTempPath()) ("wsl-input-reset-{0}.stdout.log" -f [Guid]::NewGuid().ToString("N"))
     $stderrPath = Join-Path ([System.IO.Path]::GetTempPath()) ("wsl-input-reset-{0}.stderr.log" -f [Guid]::NewGuid().ToString("N"))
     try {
+        if (-not $script:SogouResetAvailable) {
+            Set-Status "当前环境不支持搜狗重置；需要 fcitx4 + 搜狗拼音 4.x" ([System.Drawing.Color]::Firebrick)
+            return
+        }
+        $confirmation = [System.Windows.Forms.MessageBox]::Show(
+            $form,
+            "重置会关闭并重新启动当前 WSL 微信桌面。未发送的输入内容会丢失，请先保存。`n`n确定继续吗？",
+            "确认重置搜狗输入法",
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Warning,
+            [System.Windows.Forms.MessageBoxDefaultButton]::Button2
+        )
+        if ($confirmation -ne [System.Windows.Forms.DialogResult]::Yes) {
+            Set-Status "已取消搜狗输入法重置"
+            Write-WidgetLog "input_reset_cancelled distro=$Distro"
+            return
+        }
         $inputResetButton.Enabled = $false
         Set-Status "正在重启微信桌面并重置搜狗，请稍候..."
         [System.Windows.Forms.Application]::DoEvents()
@@ -997,26 +1066,31 @@ function Invoke-SogouInputReset {
             Start-Sleep -Milliseconds 100
         }
         $process.WaitForExit()
+        $process.Refresh()
         $exitCode = $process.ExitCode
+        $exitCodeLabel = if ([string]::IsNullOrWhiteSpace([string]$exitCode)) { "unavailable" } else { [string]$exitCode }
         $output = @(
             @(Get-Content -LiteralPath $stdoutPath -ErrorAction SilentlyContinue)
             @(Get-Content -LiteralPath $stderrPath -ErrorAction SilentlyContinue)
         )
         $cleanOutput = Remove-NulText -Lines $output
+        $outputText = $cleanOutput -join "`n"
         $outputBox.Text = ($cleanOutput -join [Environment]::NewLine)
-        if ($exitCode -eq 0) {
-            if (($cleanOutput -join "`n") -match '(?m)^activation=armed_for_next_input$') {
+        if ($outputText -match '(?m)^status=ok\r?$') {
+            if ($outputText -match '(?m)^activation=armed_for_next_input\r?$') {
                 Set-Status "微信桌面已重启；进入输入框后自动启用搜狗" ([System.Drawing.Color]::FromArgb(28, 110, 68))
             }
             else {
                 Set-Status "微信桌面与输入法已重启，已切换到搜狗拼音" ([System.Drawing.Color]::FromArgb(28, 110, 68))
             }
-            Write-WidgetLog "input_reset_ok distro=$Distro"
+            Write-WidgetLog "input_reset_ok distro=$Distro code=$exitCodeLabel"
         }
         else {
-            Set-Status "重置输入法失败，退出码 $exitCode" ([System.Drawing.Color]::Firebrick)
+            $reasonLine = @($cleanOutput | Where-Object { $_ -match '^error=' } | Select-Object -First 1)
+            $reason = if ($reasonLine.Count -gt 0) { ([string]$reasonLine[0]).Substring(6) } else { "命令未返回成功状态" }
+            Set-Status "重置搜狗输入法失败：$reason" ([System.Drawing.Color]::Firebrick)
             Set-WidgetPage -Page "runtime"
-            Write-WidgetLog "input_reset_failed code=$exitCode distro=$Distro"
+            Write-WidgetLog "input_reset_failed code=$exitCodeLabel distro=$Distro reason=$reason"
         }
     }
     catch {
@@ -1026,7 +1100,7 @@ function Invoke-SogouInputReset {
     }
     finally {
         Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
-        $inputResetButton.Enabled = $true
+        $inputResetButton.Enabled = $script:SogouResetAvailable
     }
 }
 
@@ -1194,9 +1268,12 @@ $stopButton = New-NeoButton -Text "关闭应用" -X 276 -Y 0 -Width 246 -Height 
 $stopButton.Add_Click({ Invoke-WeChatStop })
 $script:ClipboardPagePanel.Controls.Add($stopButton)
 
-$inputResetButton = New-NeoButton -Text "重置输入法" -X 18 -Y 66 -Width 504 -Height 54 -Fill $watchWarnColor -TextColor ([System.Drawing.Color]::White)
+$inputResetButton = New-NeoButton -Text "检测搜狗重置能力..." -X 18 -Y 66 -Width 504 -Height 54 -Fill $watchWarnColor -TextColor ([System.Drawing.Color]::White)
+$inputResetButton.Enabled = $false
 $inputResetButton.Add_Click({ Invoke-SogouInputReset })
 $script:ClipboardPagePanel.Controls.Add($inputResetButton)
+$inputResetToolTip = New-Object System.Windows.Forms.ToolTip
+$inputResetToolTip.SetToolTip($inputResetButton, "正在检测 fcitx4 + 搜狗拼音 4.x。")
 
 $watchPanel = New-NeoPanel -X 18 -Y 106 -Width 354 -Height 52 -Radius 22 -Inset
 $script:RuntimePagePanel.Controls.Add($watchPanel)
@@ -1385,6 +1462,7 @@ $form.Add_DragDrop({
 
 $form.Add_Shown({
     Read-ClipboardIntoWidget
+    Update-SogouResetCapability
     Update-ClipboardWatcherStatus
     $script:LastWatchStatusAt = Get-Date
     $timer.Start()
@@ -1396,6 +1474,7 @@ $form.Add_FormClosed({
     if ($pictureBox.Image) { $pictureBox.Image.Dispose() }
     if ($iconBox.Image) { $iconBox.Image.Dispose() }
     if ($form.Icon) { $form.Icon.Dispose() }
+    if ($inputResetToolTip) { $inputResetToolTip.Dispose() }
 })
 
 Set-WidgetPage -Page "clipboard"

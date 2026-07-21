@@ -21,11 +21,21 @@ wsl -d Ubuntu-22.04 -- tail -n 80 ~/.cache/wechat-desktop/fcitx5.log
 
 Healthy Sogou startup has `mqueue_mounted=1`, running fcitx/Sogou PIDs, and a small current `sogou_queue_count`. Errors such as `can't open sendmq`, `mq_open failed`, or `Too many open files` usually mean `/dev/mqueue` was unavailable or old Sogou queues survived a prior session.
 
-Save any unsent input, then use the widget's `重置输入法` button or the installed helper to restart this managed nested desktop and repair the scoped input session:
+Confirm the supported fcitx4 + Sogou 4.x path without changing state:
+
+```powershell
+wsl -d Ubuntu-22.04 -- wechat-input-reset --check
+```
+
+If this reports `status=supported`, save any unsent input, then use the widget's `重置搜狗输入法` button or the installed helper to restart this managed nested desktop and repair the scoped input session:
 
 ```powershell
 wsl -d Ubuntu-22.04 -- wechat-input-reset
 ```
+
+If `--check` reports that `sogoupinyin` is not installed, this is expected on a baseline `fcitx-pinyin` setup: the widget disables the Sogou-only reset button. The command does not support fcitx5, IBus, other engines, native Linux desktops, or WeChat started outside this project's Xephyr session. If it reports another missing command, rerun the installer/doctor rather than forcing a restart.
+
+If the helper reports `another input reset is already running`, wait for the first operation to finish. Do not start concurrent resets from multiple widgets or terminals.
 
 If the helper reports that the nested display is not running, or the whole desktop is unhealthy, restart the full session:
 
@@ -41,7 +51,7 @@ sudo mkdir -p /dev/mqueue
 sudo mount -t mqueue none /dev/mqueue
 ```
 
-After repair, verify several conversions in the real WeChat field with bounded latency; one successful conversion is not enough to rule out an IPC backlog. Avoid deleting unrelated files under `/dev/mqueue` or broadly killing every input-method process.
+After repair, verify several conversions in the real WeChat field with bounded latency; one successful conversion is not enough to rule out an IPC backlog. Avoid deleting unrelated files under `/dev/mqueue` or broadly killing every input-method process. `wechat-desktop-stop --dry-run` should show only state-file descendants or exact WeChat processes whose `DISPLAY` matches the managed nested desktop.
 
 ## Notification Test Does Not Flash Taskbar
 
