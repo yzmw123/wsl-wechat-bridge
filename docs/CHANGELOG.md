@@ -4,6 +4,8 @@ This file tracks repository changes made by agents. Keep entries short and appen
 
 ## 2026-07-21
 
+- Added the missing public 2026-07-21 update summary to `README.md` and made README update records plus full pre-push secret/scope review mandatory in `AGENTS.md` for every public push.
+- Verification: reviewed the public release rules and README entry; repository, staged-diff, and ahead-of-remote secret scans reported no suspected credentials or private-key material; `git diff --check` passed.
 - Hardened the Sogou reset feature for public installs: the widget now advertises only `fcitx4 + sogoupinyin` support, disables itself when the read-only capability check fails, and confirms before restarting; the helper has a concurrency lock, managed-PID/display-scoped process discovery, verified queue cleanup, and same-distro relaunch.
 - Persisted the installer's validated WSL distro in `distro.txt` for every distro-aware Windows launcher, narrowed `wechat-desktop-stop` from user-wide WeChat matches to the managed PID tree or display-scoped compatibility fallback, added reset safety contract tests, and documented the unsupported fcitx5/IBus/direct-WSLg/native-Linux cases.
 - Verification: Bash and PowerShell parser checks and 10 automated tests passed; install, doctor, installed hash, capability, distro persistence, display-scoped dry-run, concurrency-lock rejection, widget reload, and live-state checks passed without restarting the active WeChat session.

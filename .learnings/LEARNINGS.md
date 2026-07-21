@@ -6,6 +6,34 @@ Corrections, insights, and knowledge gaps captured during development.
 
 ---
 
+## [LRN-20260721-002] correction
+
+**Logged**: 2026-07-21T17:21:27+08:00
+**Priority**: critical
+**Status**: promoted
+**Area**: docs
+
+### Summary
+Every public push must update the README's user-facing update record and explicitly audit the full outgoing change set for secrets.
+
+### Details
+The 2026-07-21 implementation was recorded in `docs/CHANGELOG.md` but the README update section still ended at 2026-07-15. Because this is a public repository, checking only code correctness or the latest diff is insufficient: all commits ahead of the remote and their documentation must be reviewed for credentials and private data before push.
+
+### Suggested Action
+Treat README update history, detailed changelog coverage, outgoing-commit scope review, secret scanning, and relevant verification as mandatory pre-push gates.
+
+### Metadata
+- Source: user_feedback
+- Related Files: README.md, docs/CHANGELOG.md, AGENTS.md
+- Tags: public-repository, release-process, changelog, secret-scanning
+- Promoted: AGENTS.md
+
+### Resolution
+- **Resolved**: 2026-07-21T17:21:27+08:00
+- **Notes**: Added the missing README entry and promoted mandatory public-release and sensitive-information review rules to `AGENTS.md`.
+
+---
+
 ## [LRN-20260721-001] correction
 
 **Logged**: 2026-07-21T13:40:04+08:00
